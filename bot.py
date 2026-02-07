@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional, List, Tuple, Dict, Any
 from contextlib import suppress
 
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import *
 from aiogram.fsm.state import StatesGroup, State
@@ -12,39 +14,34 @@ from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from aiogram.exceptions import TelegramBadRequest
 import aiosqlite
 
+# Load environment variables
+load_dotenv()
+
 # ================== CONFIG ==================
-BOT_TOKEN = "7142196746:AAHBbpyXISw4XCxtvSzDItojFcFc97wKDZY"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is not set. Please check .env file.")
 
-MAIN_CHANNEL_ID = -1002120185316
+MAIN_CHANNEL_ID = int(os.getenv("MAIN_CHANNEL_ID", "0"))
+COMMENTS_CHAT_ID = int(os.getenv("COMMENTS_CHAT_ID", "0"))
 
-MODERATORS_CHAT_ID = -1002156153932
-MODERATORS_TOPIC_ID = 70619
+MODERATORS_CHAT_ID = int(os.getenv("MODERATORS_CHAT_ID", "0"))
+MODERATORS_TOPIC_ID = int(os.getenv("MODERATORS_TOPIC_ID", "0"))
 
-ADMINS_CHAT_ID = -1002104468174
-ADMINS_TOPIC_ID = 76774
+ADMINS_CHAT_ID = int(os.getenv("ADMINS_CHAT_ID", "0"))
+ADMINS_TOPIC_ID = int(os.getenv("ADMINS_TOPIC_ID", "0"))
 
-ADMINS = [6702947726, 1171717255]
+# Parse admin IDs from comma-separated string
+ADMINS_STR = os.getenv("ADMINS", "")
+ADMINS = [int(uid.strip()) for uid in ADMINS_STR.split(",") if uid.strip()]
 MODERATORS = []
 
-DB_NAME = "smotrbot.db"
+DB_NAME = os.getenv("DB_NAME", "smotrbot.db")
 
 # ================== ОБЯЗАТЕЛЬНЫЕ КАНАЛЫ/БОТЫ ДЛЯ ПОДПИСКИ ==================
-REQUIRED_SUBSCRIPTIONS = [
-    {
-        "type": "channel",
-        "id": "-1002120185316",
-        "username": "@smotrmaslyanino",
-        "name": "Смотр Маслянино",
-        "url": "https://t.me/smotrmaslyanino"
-    },
-    {
-        "type": "bot",
-        "id": "8589490953",
-        "username": "@smotrmaslyaninostars_bot",
-        "name": "Магазин Звёзд",
-        "url": "https://t.me/smotrmaslyaninostars_bot"
-    }
-]
+# Configure required subscriptions in environment variables
+# Example format: REQUIRED_SUBSCRIPTIONS_JSON={"0":{"type":"channel","id":"-1002120185316","username":"@name","name":"Name","url":"https://t.me/name"}}
+REQUIRED_SUBSCRIPTIONS = []
 
 # ================== INIT ==================
 bot = Bot(BOT_TOKEN)

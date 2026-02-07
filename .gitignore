@@ -3,9 +3,6 @@
 .env.local
 .env.example
 
-# Configuration
-config.py
-
 # Database
 *.db
 

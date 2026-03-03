@@ -668,10 +668,10 @@ def main_menu():
         ],
         [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
         [
-            InlineKeyboardButton(text="📢 Реклама", callback_data="ads"),
+            InlineKeyboardButton(text="🔒 VPN", url="https://t.me/hitvpnbot?start=176967621463581"),
             InlineKeyboardButton(text="🛒 Магазин звёзд", url="https://t.me/smotrmaslyaninostars_bot")
         ],
-        [InlineKeyboardButton(text="🔒 VPN", url="https://t.me/hitvpnbot?start=176967621463581")]
+        [InlineKeyboardButton(text="📢 Реклама", callback_data="ads")]
     ])
 
 def menu_btn():

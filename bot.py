@@ -670,7 +670,8 @@ def main_menu():
         [
             InlineKeyboardButton(text="📢 Реклама", callback_data="ads"),
             InlineKeyboardButton(text="🛒 Магазин звёзд", url="https://t.me/smotrmaslyaninostars_bot")
-        ]
+        ],
+        [InlineKeyboardButton(text="🔒 VPN", url="https://t.me/hitvpnbot?start=176967621463581")]
     ])
 
 def menu_btn():

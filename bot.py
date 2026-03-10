@@ -3344,36 +3344,6 @@ async def broadcast_text_handler(cb: CallbackQuery, state: FSMContext):
         reply_markup=broadcast_cancel_menu()
     )
 
-@dp.callback_query(F.data == "broadcast_photo")
-async def broadcast_photo_handler(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
-        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
-    
-    await state.set_state(BroadcastState.wait_broadcast_photo)
-    await cb.message.edit_text(
-        "📷 <b>Рассылка с фото</b>\n\n"
-        "Отправьте фото для рассылки.\n\n"
-        "✅ <b>После загрузки фото:</b>\n"
-        "1. Бот примет фото\n"
-        "2. Вы отправите текст с форматированием\n"
-        "3. Бот автоматически определит все гиперссылки и премиум эмодзи\n\n"
-        "📤 <i>Отправьте фото:</i>",
-        parse_mode='HTML',
-        reply_markup=broadcast_cancel_menu()
-    )
-
-@dp.callback_query(F.data == "broadcast_cancel")
-async def broadcast_cancel_handler(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
-        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
-    
-    await state.clear()
-    await cb.message.edit_text(
-        "❌ Рассылка отменена.",
-        reply_markup=admin_menu()
-    )
-
-# Обработка текстовой рассылки
 @dp.message(BroadcastState.wait_broadcast_text)
 async def process_broadcast_text(msg: Message, state: FSMContext):
     if msg.from_user.id not in ADMINS:
@@ -3399,6 +3369,24 @@ async def process_broadcast_text(msg: Message, state: FSMContext):
     
     # Показываем предпросмотр
     await show_broadcast_preview(msg, state)
+
+@dp.callback_query(F.data == "broadcast_photo")
+async def broadcast_photo_handler(cb: CallbackQuery, state: FSMContext):
+    if cb.from_user.id not in ADMINS:
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+    
+    await state.set_state(BroadcastState.wait_broadcast_photo)
+    await cb.message.edit_text(
+        "📷 <b>Рассылка с фото</b>\n\n"
+        "Отправьте фото для рассылки.\n\n"
+        "✅ <b>После загрузки фото:</b>\n"
+        "1. Бот примет фото\n"
+        "2. Вы отправите текст с форматированием\n"
+        "3. Бот автоматически определит все гиперссылки и премиум эмодзи\n\n"
+        "📤 <i>Отправьте фото:</i>",
+        parse_mode='HTML',
+        reply_markup=broadcast_cancel_menu()
+    )
 
 @dp.message(BroadcastState.wait_broadcast_photo)
 async def process_broadcast_photo(msg: Message, state: FSMContext):

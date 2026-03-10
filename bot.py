@@ -864,7 +864,7 @@ def back_to_previous():
     ])
 
 def pagination_keyboard(current_page: int, total_pages: int, list_type: str, back_callback: str = "blacklist"):
-    """Создает клавиатуру для пагинации"""
+    """Создает клавиатуру для пагинации с кнопками навигации и возврата"""
     keyboard = []
     
     # Кнопки навигации
@@ -883,7 +883,7 @@ def pagination_keyboard(current_page: int, total_pages: int, list_type: str, bac
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def pending_posts_keyboard(current_page: int, total_pages: int):
-    """Создает клавиатуру для постов на модерации"""
+    """Создает клавиатуру для постов на модерации с кнопками действий"""
     keyboard = []
     
     # Кнопки навигации

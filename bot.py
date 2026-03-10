@@ -173,15 +173,19 @@ async def load_subscriptions_from_db():
         if rows:
             REQUIRED_SUBSCRIPTIONS = []
             for row in rows:
+                # ID уже хранится как строка в БД
+                sub_id = row[1]
+                
                 REQUIRED_SUBSCRIPTIONS.append({
                     "type": row[0],
-                    "id": str(row[1]),  # Преобразуем в строку для единообразия
+                    "id": sub_id,  # Оставляем как строку
                     "username": row[2],
                     "name": row[3],
                     "url": row[4]
                 })
             logger.info(f"Загружено {len(REQUIRED_SUBSCRIPTIONS)} обязательных подписок из БД")
         else:
+            # Если нет подписок в БД, сохраняем текущие (из config)
             await save_subscriptions_to_db()
 
 async def save_subscriptions_to_db():
@@ -190,12 +194,15 @@ async def save_subscriptions_to_db():
         await db.execute("DELETE FROM required_subscriptions")
         
         for sub in REQUIRED_SUBSCRIPTIONS:
+            # Убеждаемся, что ID сохраняется как строка
+            sub_id = str(sub["id"])
+            
             await db.execute("""
                 INSERT INTO required_subscriptions(sub_type, sub_id, username, name, url, added_time)
                 VALUES(?,?,?,?,?,?)
             """, (
                 sub["type"],
-                sub["id"],
+                sub_id,
                 sub["username"],
                 sub["name"],
                 sub["url"],
@@ -244,17 +251,29 @@ async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     for sub in REQUIRED_SUBSCRIPTIONS:
         if sub["type"] == "channel":
             try:
+                # Преобразуем ID в целое число, если это канал
+                # ID каналов обычно начинаются с -100 и являются числами
                 chat_id = int(sub["id"])
+                
+                # Проверяем подписку
                 chat_member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
                 if chat_member.status not in ["member", "administrator", "creator"]:
+                    unsubscribed.append(sub)
+            except ValueError:
+                # Если не получается преобразовать в число, пробуем как строку (username)
+                try:
+                    chat_member = await bot.get_chat_member(chat_id=sub["id"], user_id=user_id)
+                    if chat_member.status not in ["member", "administrator", "creator"]:
+                        unsubscribed.append(sub)
+                except Exception as e:
+                    logger.error(f"Ошибка при проверке подписки на канал {sub['id']}: {e}")
                     unsubscribed.append(sub)
             except Exception as e:
                 logger.error(f"Ошибка при проверке подписки на канал {sub['id']}: {e}")
                 unsubscribed.append(sub)
         elif sub["type"] == "bot":
-            # Для ботов проверяем, что пользователь начал с ним диалог
-            # На самом деле мы не можем проверить, начал ли пользователь диалог с ботом
-            # Поэтому просто добавляем бота в список для отображения
+            # Для ботов мы не можем проверить подписку
+            # Просто добавляем в список для отображения
             unsubscribed.append(sub)
     
     return len(unsubscribed) == 0, unsubscribed
@@ -277,21 +296,14 @@ def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> Inli
             )
         ])
     
-    # Проверяем, есть ли каналы для подписки
+    # Добавляем кнопку проверки только если есть каналы для подписки
     has_channels = any(sub["type"] == "channel" for sub in subscriptions_to_show)
     has_bots = any(sub["type"] == "bot" for sub in subscriptions_to_show)
     
-    if has_channels:
+    # Всегда добавляем кнопку проверки, если есть что проверять
+    if has_channels or has_bots:
         keyboard.append([
-            InlineKeyboardButton(text="✅ Продолжить", callback_data="check_subscription")
-        ])
-    elif has_bots:
-        keyboard.append([
-            InlineKeyboardButton(text="✅ Продолжить", callback_data="check_subscription")
-        ])
-    else:
-        keyboard.append([
-            InlineKeyboardButton(text="✅ Продолжить", callback_data="check_subscription")
+            InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription")
         ])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -2649,13 +2661,36 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
     start_idx = (page - 1) * 5 + 1
     for i, (keyword, keyword_type, added_by, added_time) in enumerate(blacklist, start_idx):
         try:
-            time_str = datetime.fromisoformat(added_time).strftime('%d.%m.%Y')
+            # Пытаемся преобразовать время
+            if added_time:
+                time_str = datetime.fromisoformat(added_time).strftime('%d.%m.%Y %H:%M')
+            else:
+                time_str = "неизвестно"
         except:
-            time_str = added_time
+            time_str = added_time or "неизвестно"
         
         type_emoji = "🔤" if keyword_type == "text" else "👤"
+        
         text_lines.append(f"<b>{i}. {type_emoji} <code>{keyword}</code></b>")
-        text_lines.append(f"   👤 Добавил: <code>{added_by}</code> | 📅 {time_str}\n")
+        
+        # Пытаемся получить username админа
+        admin_info = ""
+        if added_by:
+            try:
+                async with aiosqlite.connect(DB_NAME) as db:
+                    cur = await db.execute("SELECT username FROM users WHERE user_id=?", (added_by,))
+                    admin_row = await cur.fetchone()
+                    if admin_row and admin_row[0]:
+                        admin_info = f"@{admin_row[0]}"
+                    else:
+                        admin_info = f"<code>{added_by}</code>"
+            except:
+                admin_info = f"<code>{added_by}</code>"
+        else:
+            admin_info = "неизвестно"
+        
+        text_lines.append(f"   👤 Добавил: {admin_info}")
+        text_lines.append(f"   🕐 Время: {time_str}\n")
     
     text = "\n".join(text_lines)
     
@@ -3674,6 +3709,14 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
     
     await log("broadcast", f"admin {cb.from_user.id}: {success_count}/{total_users} успешно")
     await state.clear()
+
+@dp.callback_query(F.data == "broadcast_cancel")
+async def broadcast_cancel(cb: CallbackQuery, state: FSMContext):
+    if cb.from_user.id not in ADMINS:
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+    
+    await state.clear()
+    await broadcast_menu_handler(cb)
 
 # ================== RUN ==================
 async def main():

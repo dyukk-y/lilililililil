@@ -928,6 +928,27 @@ def admin_reject_reason_confirm_keyboard(post_id: int):
 # ================== MIDDLEWARE ДЛЯ ПРОВЕРКИ ЧАТА И ТЕМЫ ==================
 class ChatValidationMiddleware:
     async def __call__(self, handler, event, data):
+        # Пропускаем все админские колбэки из личных сообщений
+        if isinstance(event, CallbackQuery):
+            # Проверяем, что это личное сообщение и админ
+            if event.message.chat.type == 'private' and event.from_user.id in ADMINS:
+                # Пропускаем все админские команды из личных сообщений
+                admin_commands = [
+                    'blacklist', 'banned_users', 'pub_blacklist', 
+                    'add_blacklist_keyword', 'remove_blacklist_keyword',
+                    'banned_page_', 'pubblack_page_', 'admin_stats', 
+                    'pending_posts', 'pending_page_', 'admin_panel',
+                    'broadcast', 'manage_subscriptions', 'list_subscriptions',
+                    'add_channel_subscription', 'add_bot_subscription', 
+                    'remove_subscription', 'refresh_subscriptions',
+                    'admin_publish_post', 'admin_reject_post'
+                ]
+                
+                # Проверяем, является ли callback_data одной из админских команд
+                for cmd in admin_commands:
+                    if event.data.startswith(cmd):
+                        return await handler(event, data)
+        
         if isinstance(event, Message):
             # Проверяем, что сообщение не из групп модераторов/администраторов
             # (пользовательские команды должны приходить только из личных сообщений)
@@ -971,6 +992,24 @@ class SubscriptionMiddleware:
         # Пропускаем все сообщения и колбэки от админов
         if hasattr(event, 'from_user') and event.from_user.id in ADMINS:
             return await handler(event, data)
+        
+        # Пропускаем все админские колбэки из личных сообщений
+        if isinstance(event, CallbackQuery):
+            if event.message.chat.type == 'private' and event.from_user.id in ADMINS:
+                admin_commands = [
+                    'blacklist', 'banned_users', 'pub_blacklist', 
+                    'add_blacklist_keyword', 'remove_blacklist_keyword',
+                    'banned_page_', 'pubblack_page_', 'admin_stats', 
+                    'pending_posts', 'pending_page_', 'admin_panel',
+                    'broadcast', 'manage_subscriptions', 'list_subscriptions',
+                    'add_channel_subscription', 'add_bot_subscription', 
+                    'remove_subscription', 'refresh_subscriptions',
+                    'admin_publish_post', 'admin_reject_post'
+                ]
+                
+                for cmd in admin_commands:
+                    if event.data.startswith(cmd):
+                        return await handler(event, data)
             
         if isinstance(event, Message):
             # Пропускаем сообщения из групп (для них своя проверка в ChatValidationMiddleware)
@@ -1046,7 +1085,6 @@ class SubscriptionMiddleware:
                     return await handler(event, data)
         
         return await handler(event, data)
-
 # ================== РЕГИСТРАЦИЯ MIDDLEWARE ==================
 chat_validation_middleware = ChatValidationMiddleware()
 subscription_middleware = SubscriptionMiddleware()

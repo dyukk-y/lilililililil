@@ -242,17 +242,16 @@ class AdminPostState(StatesGroup):
 
 # ================== UTILS ==================
 async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
-    """Проверяет подписку пользователя на обязательные каналы и ботов."""
+    """Проверяет подписку пользователя на обязательные каналы, группы и ботов."""
     if not REQUIRED_SUBSCRIPTIONS:
         return True, []
     
     unsubscribed = []
     
     for sub in REQUIRED_SUBSCRIPTIONS:
-        if sub["type"] == "channel":
+        if sub["type"] in ["channel", "group"]:
             try:
-                # Преобразуем ID в целое число, если это канал
-                # ID каналов обычно начинаются с -100 и являются числами
+                # Преобразуем ID в целое число
                 chat_id = int(sub["id"])
                 
                 # Проверяем подписку
@@ -266,10 +265,10 @@ async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
                     if chat_member.status not in ["member", "administrator", "creator"]:
                         unsubscribed.append(sub)
                 except Exception as e:
-                    logger.error(f"Ошибка при проверке подписки на канал {sub['id']}: {e}")
+                    logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
                     unsubscribed.append(sub)
             except Exception as e:
-                logger.error(f"Ошибка при проверке подписки на канал {sub['id']}: {e}")
+                logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
                 unsubscribed.append(sub)
         elif sub["type"] == "bot":
             # Для ботов мы не можем проверить подписку
@@ -279,7 +278,7 @@ async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     return len(unsubscribed) == 0, unsubscribed
 
 def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> InlineKeyboardMarkup:
-    """Создает клавиатуру для подписки на каналы/бота."""
+    """Создает клавиатуру для подписки на каналы/группы/бота."""
     if unsubscribed is None:
         subscriptions_to_show = REQUIRED_SUBSCRIPTIONS
     else:
@@ -288,7 +287,13 @@ def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> Inli
     keyboard = []
     
     for sub in subscriptions_to_show:
-        emoji = "📢" if sub["type"] == "channel" else "🤖"
+        if sub["type"] == "channel":
+            emoji = "📢"
+        elif sub["type"] == "group":
+            emoji = "👥"
+        else:
+            emoji = "🤖"
+        
         keyboard.append([
             InlineKeyboardButton(
                 text=f"{emoji} {sub['name']}",
@@ -296,12 +301,10 @@ def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> Inli
             )
         ])
     
-    # Добавляем кнопку проверки только если есть каналы для подписки
-    has_channels = any(sub["type"] == "channel" for sub in subscriptions_to_show)
-    has_bots = any(sub["type"] == "bot" for sub in subscriptions_to_show)
+    # Добавляем кнопку проверки только если есть каналы/группы для подписки
+    has_required = any(sub["type"] in ["channel", "group"] for sub in subscriptions_to_show)
     
-    # Всегда добавляем кнопку проверки, если есть что проверять
-    if has_channels or has_bots:
+    if has_required:
         keyboard.append([
             InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription")
         ])
@@ -825,6 +828,7 @@ def subscriptions_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Список подписок", callback_data="list_subscriptions")],
         [InlineKeyboardButton(text="➕ Добавить канал", callback_data="add_channel_subscription")],
+        [InlineKeyboardButton(text="👥 Добавить группу", callback_data="add_group_subscription")],
         [InlineKeyboardButton(text="🤖 Добавить бота", callback_data="add_bot_subscription")],
         [InlineKeyboardButton(text="🗑️ Удалить подписку", callback_data="remove_subscription")],
         [InlineKeyboardButton(text="🔄 Обновить подписки", callback_data="refresh_subscriptions")],
@@ -951,9 +955,10 @@ class ChatValidationMiddleware:
                     'banned_page_', 'pubblack_page_', 'admin_stats', 
                     'pending_posts', 'pending_page_', 'admin_panel',
                     'broadcast', 'manage_subscriptions', 'list_subscriptions',
-                    'add_channel_subscription', 'add_bot_subscription', 
-                    'remove_subscription', 'refresh_subscriptions',
-                    'admin_publish_post', 'admin_reject_post'
+                    'add_channel_subscription', 'add_group_subscription',
+                    'add_bot_subscription', 'remove_subscription', 
+                    'refresh_subscriptions', 'admin_publish_post', 
+                    'admin_reject_post'
                 ]
                 
                 # Проверяем, является ли callback_data одной из админских команд
@@ -1014,9 +1019,10 @@ class SubscriptionMiddleware:
                     'banned_page_', 'pubblack_page_', 'admin_stats', 
                     'pending_posts', 'pending_page_', 'admin_panel',
                     'broadcast', 'manage_subscriptions', 'list_subscriptions',
-                    'add_channel_subscription', 'add_bot_subscription', 
-                    'remove_subscription', 'refresh_subscriptions',
-                    'admin_publish_post', 'admin_reject_post'
+                    'add_channel_subscription', 'add_group_subscription',
+                    'add_bot_subscription', 'remove_subscription', 
+                    'refresh_subscriptions', 'admin_publish_post', 
+                    'admin_reject_post'
                 ]
                 
                 for cmd in admin_commands:
@@ -1043,16 +1049,16 @@ class SubscriptionMiddleware:
             if not is_subscribed:
                 is_subscribed_now, unsubscribed = await check_subscription(user_id)
                 
-                # Проверяем только каналы
-                unsubscribed_channels = [sub for sub in unsubscribed if sub["type"] == "channel"]
+                # Проверяем только каналы и группы
+                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
                 
-                if unsubscribed_channels:
+                if unsubscribed_required:
                     text = (
-                        f"📢 <b>Для использования бота необходимо подписаться на каналы:</b>\n\n"
-                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти в каналы и подписаться, затем нажмите «Я подписался»:</i>"
+                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
+                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
                     )
                     
-                    await event.answer(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_channels))
+                    await event.answer(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
                     return
                 else:
                     await update_user_subscription_status(user_id, True)
@@ -1077,20 +1083,20 @@ class SubscriptionMiddleware:
             is_subscribed = await get_user_subscription_status(user_id)
             
             if not is_subscribed:
-                await event.answer("⚠️ Для использования бота необходимо подписаться на каналы.", show_alert=True)
+                await event.answer("⚠️ Для использования бота необходимо подписаться.", show_alert=True)
                 
                 is_subscribed_now, unsubscribed = await check_subscription(user_id)
                 
-                # Проверяем только каналы
-                unsubscribed_channels = [sub for sub in unsubscribed if sub["type"] == "channel"]
+                # Проверяем только каналы и группы
+                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
                 
-                if unsubscribed_channels:
+                if unsubscribed_required:
                     text = (
-                        f"📢 <b>Для использования бота необходимо подписаться на каналы:</b>\n\n"
-                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти в каналы и подписаться, затем нажмите «Я подписался»:</i>"
+                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
+                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
                     )
                     
-                    await event.message.edit_text(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_channels))
+                    await event.message.edit_text(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
                     return
                 else:
                     await update_user_subscription_status(user_id, True)
@@ -1128,13 +1134,11 @@ async def start(msg: Message):
     await register_user(msg.from_user)
     
     is_subscribed, unsubscribed = await check_subscription(msg.from_user.id)
-    unsubscribed_channels = [sub for sub in unsubscribed if sub["type"] == "channel"]
+    unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
     
-    if unsubscribed_channels:
-        channels_text = "\n".join([f"• {sub['name']} ({sub['username']})" for sub in unsubscribed_channels])
-        
+    if unsubscribed_required:
         await msg.answer(
-            f"<b>Для начала вам нужно подписаться на канал/ы</b>\n"
+            f"<b>Для начала вам нужно подписаться</b>\n"
             f"После этого нажмите на кнопку «Я подписался».\n",
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed)
@@ -1164,24 +1168,22 @@ async def check_subscription_callback(cb: CallbackQuery):
     
     is_subscribed, unsubscribed = await check_subscription(cb.from_user.id)
     
-    # Проверяем только каналы, ботов не проверяем
-    unsubscribed_channels = [sub for sub in unsubscribed if sub["type"] == "channel"]
+    # Проверяем только каналы и группы
+    unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
     
-    if unsubscribed_channels:
-        channels_text = "\n".join([f"• {sub['name']} ({sub['username']})" for sub in unsubscribed_channels])
-        
+    if unsubscribed_required:
         await cb.message.edit_text(
-            f"<b>Вы еще не подписались на канал/ы 😡</b>\n"
+            f"<b>Вы еще не подписались 😡</b>\n"
             f"После подписки нажмите кнопку «Я подписался» еще раз",
             parse_mode='HTML',
-            reply_markup=get_subscription_keyboard(unsubscribed_channels)
+            reply_markup=get_subscription_keyboard(unsubscribed_required)
         )
         return
     
     await update_user_subscription_status(cb.from_user.id, True)
     
     await cb.message.edit_text(
-        "✅ <b>Отлично! Вы подписались на необходимый/е канал/ы</b>\n\n"
+        "✅ <b>Отлично! Вы подписались на необходимые ресурсы</b>\n\n"
         "Привет! 👋\n"
         "Предложи запись для размещения в канале. \n\n"
         "⚠️ <b>Важное правило:</b>\n"
@@ -1216,7 +1218,13 @@ async def list_subscriptions(cb: CallbackQuery):
         text_lines = ["📋 <b>Обязательные подписки:</b>\n\n"]
         
         for i, sub in enumerate(REQUIRED_SUBSCRIPTIONS, 1):
-            emoji = "📢" if sub["type"] == "channel" else "🤖"
+            if sub["type"] == "channel":
+                emoji = "📢"
+            elif sub["type"] == "group":
+                emoji = "👥"
+            else:
+                emoji = "🤖"
+                
             text_lines.append(f"{i}. {emoji} <b>{sub['name']}</b>")
             text_lines.append(f"   Тип: {sub['type']}")
             text_lines.append(f"   ID/Username: <code>{sub['id']}</code>")
@@ -1248,6 +1256,30 @@ async def add_channel_subscription(cb: CallbackQuery, state: FSMContext):
         "1. ID канала должен быть числом (начинаться с -100)\n"
         "2. Юзернейм должен начинаться с @\n"
         "3. Название может содержать пробелы",
+        parse_mode='HTML',
+        reply_markup=subscription_cancel_menu()
+    )
+
+@dp.callback_query(F.data == "add_group_subscription")
+async def add_group_subscription(cb: CallbackQuery, state: FSMContext):
+    """Добавление обязательной группы"""
+    if cb.from_user.id not in ADMINS:
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+    
+    await state.set_state(SubscriptionState.wait_subscription_add)
+    await state.update_data(sub_type="group")
+    
+    await cb.message.edit_text(
+        "👥 <b>Добавление обязательной группы</b>\n\n"
+        "Отправьте данные группы в формате:\n"
+        "<code>ID_группы @юзернейм Название_группы</code>\n\n"
+        "<i>Пример:</i>\n"
+        "<code>-1001234567890 @example_group Наша группа</code>\n\n"
+        "<i>Примечания:</i>\n"
+        "1. ID группы должен быть числом (начинаться с -100)\n"
+        "2. Юзернейм должен начинаться с @\n"
+        "3. Название может содержать пробелы\n"
+        "4. Пользователь должен быть участником группы",
         parse_mode='HTML',
         reply_markup=subscription_cancel_menu()
     )
@@ -1327,6 +1359,51 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         
         await log("subscription_add", f"admin {msg.from_user.id} added channel {channel_id} ({name})")
     
+    elif sub_type == "group":
+        parts = msg.text.split(maxsplit=2)
+        if len(parts) < 3:
+            return await msg.answer("❌ Неверный формат. Нужно: ID_группы @юзернейм Название_группы")
+        
+        group_id_str, username, name = parts
+        
+        try:
+            group_id = int(group_id_str)
+        except ValueError:
+            return await msg.answer("❌ ID группы должен быть числом.")
+        
+        if not username.startswith("@"):
+            return await msg.answer("❌ Юзернейм должен начинаться с @.")
+        
+        url = f"https://t.me/{username.lstrip('@')}"
+        
+        for sub in REQUIRED_SUBSCRIPTIONS:
+            if sub["type"] == "group" and (str(sub["id"]) == str(group_id) or sub["username"] == username):
+                return await msg.answer(f"❌ Группа уже есть в списке.")
+        
+        new_sub = {
+            "type": "group",
+            "id": str(group_id),
+            "username": username,
+            "name": name,
+            "url": url
+        }
+        
+        REQUIRED_SUBSCRIPTIONS.append(new_sub)
+        await save_subscriptions_to_db()
+        
+        await msg.answer(
+            f"✅ Группа добавлена:\n"
+            f"<b>Тип:</b> Группа\n"
+            f"<b>Название:</b> {name}\n"
+            f"<b>ID:</b> <code>{group_id}</code>\n"
+            f"<b>Юзернейм:</b> {username}\n"
+            f"<b>Ссылка:</b> {url}",
+            parse_mode='HTML',
+            reply_markup=subscriptions_menu()
+        )
+        
+        await log("subscription_add", f"admin {msg.from_user.id} added group {group_id} ({name})")
+    
     elif sub_type == "bot":
         parts = msg.text.split(maxsplit=1)
         if len(parts) < 2:
@@ -1381,7 +1458,13 @@ async def remove_subscription(cb: CallbackQuery):
     keyboard = []
     
     for i, sub in enumerate(REQUIRED_SUBSCRIPTIONS, 1):
-        emoji = "📢" if sub["type"] == "channel" else "🤖"
+        if sub["type"] == "channel":
+            emoji = "📢"
+        elif sub["type"] == "group":
+            emoji = "👥"
+        else:
+            emoji = "🤖"
+            
         keyboard.append([
             InlineKeyboardButton(
                 text=f"{i}. {emoji} {sub['name']}",
@@ -1410,7 +1493,13 @@ async def process_remove_subscription(cb: CallbackQuery):
             
             await save_subscriptions_to_db()
             
-            emoji = "📢" if removed_sub["type"] == "channel" else "🤖"
+            if removed_sub["type"] == "channel":
+                emoji = "📢"
+            elif removed_sub["type"] == "group":
+                emoji = "👥"
+            else:
+                emoji = "🤖"
+                
             await cb.message.edit_text(
                 f"✅ Подписка удалена:\n\n"
                 f"{emoji} <b>{removed_sub['name']}</b>\n"
@@ -2522,19 +2611,44 @@ async def admin_panel_command(msg: Message):
     users_count = await get_users_count()
     banned_users, _ = await get_banned_users(page=1, per_page=1)
     banned_count = len(banned_users) if banned_users else 0
-    blacklist, _ = await get_publication_blacklist(page=1, per_page=1)
+    blacklist, _ = await get_publication_blacklist(page=1, per_page=100)  # Получаем все слова
     blacklist_count = len(blacklist) if blacklist else 0
     subscription_count = len(REQUIRED_SUBSCRIPTIONS)
     
+    # Формируем текст с черным списком
     text = (
         f"🛠 <b>Админ-панель</b>\n\n"
         f"📊 <b>Статистика:</b>\n"
         f"👥 Пользователей: <b>{users_count}</b>\n"
         f"🚫 Заблокировано: <b>{banned_count}</b>\n"
-        f"📝 Слов в ЧС: <b>{blacklist_count}</b>\n"
+        f"📝 Слов в ЧС публикаций: <b>{blacklist_count}</b>\n"
         f"📢 Обязательных подписок: <b>{subscription_count}</b>\n\n"
-        f"<i>Выберите действие:</i>"
     )
+    
+    # Добавляем черный список публикаций, если он не пуст
+    if blacklist_count > 0:
+        text += "📋 <b>Черный список публикаций:</b>\n"
+        
+        # Показываем первые 10 слов, чтобы не перегружать сообщение
+        for i, (keyword, keyword_type, added_by, added_time) in enumerate(blacklist[:10], 1):
+            try:
+                # Пытаемся получить username админа
+                async with aiosqlite.connect(DB_NAME) as db:
+                    cur = await db.execute("SELECT username FROM users WHERE user_id=?", (added_by,))
+                    admin_row = await cur.fetchone()
+                    admin_name = f"@{admin_row[0]}" if admin_row and admin_row[0] else f"id{added_by}"
+            except:
+                admin_name = f"id{added_by}"
+            
+            type_emoji = "🔤" if keyword_type == "text" else "👤"
+            text += f"{i}. {type_emoji} <code>{keyword}</code> (добавил: {admin_name})\n"
+        
+        if blacklist_count > 10:
+            text += f"\n<i>... и еще {blacklist_count - 10} слов в списке</i>\n"
+        
+        text += "\n"
+    
+    text += "<i>Выберите действие:</i>"
     
     await msg.answer(text, parse_mode='HTML', reply_markup=admin_menu())
 
@@ -2546,7 +2660,7 @@ async def admin_panel_callback(cb: CallbackQuery):
     users_count = await get_users_count()
     banned_users, _ = await get_banned_users(page=1, per_page=1)
     banned_count = len(banned_users) if banned_users else 0
-    blacklist, _ = await get_publication_blacklist(page=1, per_page=1)
+    blacklist, _ = await get_publication_blacklist(page=1, per_page=100)
     blacklist_count = len(blacklist) if blacklist else 0
     subscription_count = len(REQUIRED_SUBSCRIPTIONS)
     
@@ -2555,7 +2669,7 @@ async def admin_panel_callback(cb: CallbackQuery):
         f"📊 <b>Статистика:</b>\n"
         f"👥 Пользователей: <b>{users_count}</b>\n"
         f"🚫 Заблокировано: <b>{banned_count}</b>\n"
-        f"📝 Слов в ЧС: <b>{blacklist_count}</b>\n"
+        f"📝 Слов в ЧС публикаций: <b>{blacklist_count}</b>\n"
         f"📢 Обязательных подписок: <b>{subscription_count}</b>\n\n"
         f"<i>Выберите действие:</i>"
     )
@@ -2824,7 +2938,7 @@ async def admin_stats(cb: CallbackQuery):
     users_count = await get_users_count()
     banned_users, _ = await get_banned_users(page=1, per_page=1)
     banned_count = len(banned_users) if banned_users else 0
-    blacklist, _ = await get_publication_blacklist(page=1, per_page=1)
+    blacklist, _ = await get_publication_blacklist(page=1, per_page=100)
     blacklist_count = len(blacklist) if blacklist else 0
     subscription_count = len(REQUIRED_SUBSCRIPTIONS)
     

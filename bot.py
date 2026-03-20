@@ -9,7 +9,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.types import *
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
-from aiogram.dispatcher.middlewares.base import BaseMiddleware
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import aiosqlite
 
@@ -117,7 +116,6 @@ async def init_db():
         CREATE TABLE IF NOT EXISTS publication_blacklist(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             keyword TEXT UNIQUE,
-            keyword_type TEXT DEFAULT 'text',
             added_by INTEGER,
             added_time TEXT
         )""")
@@ -145,7 +143,6 @@ async def init_db():
         
         await db.commit()
         logger.info("База данных инициализирована")
-        
         await load_subscriptions_from_db()
 
 async def load_subscriptions_from_db():
@@ -162,11 +159,9 @@ async def load_subscriptions_from_db():
         if rows:
             REQUIRED_SUBSCRIPTIONS = []
             for row in rows:
-                sub_id = row[1]
-                
                 REQUIRED_SUBSCRIPTIONS.append({
                     "type": row[0],
-                    "id": sub_id,
+                    "id": row[1],
                     "username": row[2],
                     "name": row[3],
                     "url": row[4]
@@ -215,7 +210,6 @@ class BroadcastState(StatesGroup):
 
 class BlacklistState(StatesGroup):
     wait_keyword = State()
-    wait_remove_keyword = State()
 
 class SubscriptionState(StatesGroup):
     wait_subscription_add = State()
@@ -347,25 +341,10 @@ async def is_banned(user_id: int) -> bool:
 async def get_ban_info(user_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         try:
-            cur = await db.execute("PRAGMA table_info(bans)")
-            columns = await cur.fetchall()
-            column_names = [col[1] for col in columns]
-            
-            if 'admin_id' in column_names and 'admin_username' in column_names:
-                cur = await db.execute(
-                    "SELECT reason, ban_time, admin_id, admin_username FROM bans WHERE user_id=?",
-                    (user_id,)
-                )
-            else:
-                cur = await db.execute(
-                    "SELECT reason, ban_time FROM bans WHERE user_id=?",
-                    (user_id,)
-                )
-                row = await cur.fetchone()
-                if row:
-                    return (row[0], row[1], None, None)
-                return None
-                
+            cur = await db.execute(
+                "SELECT reason, ban_time, admin_username FROM bans WHERE user_id=?",
+                (user_id,)
+            )
             return await cur.fetchone()
         except Exception as e:
             logger.error(f"Ошибка получения информации о блокировке: {e}")
@@ -374,22 +353,10 @@ async def get_ban_info(user_id: int):
 async def ban_user(user_id: int, reason: str, admin: User):
     async with aiosqlite.connect(DB_NAME) as db:
         try:
-            cur = await db.execute("PRAGMA table_info(bans)")
-            columns = await cur.fetchall()
-            column_names = [col[1] for col in columns]
-            
-            if 'admin_id' in column_names and 'admin_username' in column_names:
-                await db.execute(
-                    "INSERT OR REPLACE INTO bans(user_id, reason, ban_time, admin_id, admin_username) VALUES(?,?,?,?,?)",
-                    (user_id, reason, str(datetime.now()), admin.id, admin.username)
-                )
-            else:
-                await db.execute("ALTER TABLE bans ADD COLUMN admin_id INTEGER")
-                await db.execute("ALTER TABLE bans ADD COLUMN admin_username TEXT")
-                await db.execute(
-                    "INSERT OR REPLACE INTO bans(user_id, reason, ban_time, admin_id, admin_username) VALUES(?,?,?,?,?)",
-                    (user_id, reason, str(datetime.now()), admin.id, admin.username)
-                )
+            await db.execute(
+                "INSERT OR REPLACE INTO bans(user_id, reason, ban_time, admin_id, admin_username) VALUES(?,?,?,?,?)",
+                (user_id, reason, str(datetime.now()), admin.id, admin.username or str(admin.id))
+            )
         except Exception as e:
             logger.error(f"Ошибка при блокировке пользователя: {e}")
             await db.execute(
@@ -406,48 +373,31 @@ async def unban_user(user_id: int):
     await log("unban", f"user {user_id} unbanned")
 
 async def get_banned_users(page: int = 1, per_page: int = 5):
+    """Получить список заблокированных пользователей с пагинацией"""
     offset = (page - 1) * per_page
     async with aiosqlite.connect(DB_NAME) as db:
-        try:
-            cur = await db.execute("""
-                SELECT b.user_id, b.reason, b.ban_time, b.admin_username, u.username 
-                FROM bans b 
-                LEFT JOIN users u ON b.user_id = u.user_id 
-                ORDER BY b.ban_time DESC
-                LIMIT ? OFFSET ?
-            """, (per_page, offset))
-            rows = await cur.fetchall()
-            
-            cur_count = await db.execute("SELECT COUNT(*) FROM bans")
-            total = (await cur_count.fetchone())[0]
-            
-            return rows, total
-        except Exception as e:
-            logger.error(f"Ошибка получения списка заблокированных: {e}")
-            cur = await db.execute(
-                "SELECT user_id, reason, ban_time FROM bans ORDER BY ban_time DESC LIMIT ? OFFSET ?",
-                (per_page, offset)
-            )
-            rows = await cur.fetchall()
-            
-            cur_count = await db.execute("SELECT COUNT(*) FROM bans")
-            total = (await cur_count.fetchone())[0]
-            
-            result = []
-            for user_id, reason, ban_time in rows:
-                cur2 = await db.execute("SELECT username FROM users WHERE user_id=?", (user_id,))
-                user_row = await cur2.fetchone()
-                username = user_row[0] if user_row else None
-                result.append((user_id, reason, ban_time, None, username))
-            return result, total
+        cur = await db.execute("""
+            SELECT b.user_id, b.reason, b.ban_time, b.admin_username, u.username 
+            FROM bans b 
+            LEFT JOIN users u ON b.user_id = u.user_id 
+            ORDER BY b.ban_time DESC
+            LIMIT ? OFFSET ?
+        """, (per_page, offset))
+        rows = await cur.fetchall()
+        
+        cur_count = await db.execute("SELECT COUNT(*) FROM bans")
+        total = (await cur_count.fetchone())[0]
+        
+        return rows, total
 
-async def add_to_publication_blacklist(keyword: str, admin_id: int, keyword_type: str = "text"):
+async def add_to_publication_blacklist(keyword: str, admin_id: int):
+    """Добавить ключевое слово в черный список для публикаций"""
     keyword_clean = keyword.strip().lower()
     async with aiosqlite.connect(DB_NAME) as db:
         try:
             await db.execute(
-                "INSERT INTO publication_blacklist(keyword, keyword_type, added_by, added_time) VALUES(?,?,?,?)",
-                (keyword_clean, keyword_type, admin_id, str(datetime.now()))
+                "INSERT INTO publication_blacklist(keyword, added_by, added_time) VALUES(?,?,?)",
+                (keyword_clean, admin_id, str(datetime.now()))
             )
             await db.commit()
             return True
@@ -455,6 +405,7 @@ async def add_to_publication_blacklist(keyword: str, admin_id: int, keyword_type
             return False
 
 async def remove_from_publication_blacklist(keyword: str):
+    """Удалить ключевое слово из черного списка"""
     keyword_clean = keyword.strip().lower()
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
@@ -465,10 +416,11 @@ async def remove_from_publication_blacklist(keyword: str):
         return True
 
 async def get_publication_blacklist(page: int = 1, per_page: int = 5):
+    """Получить черный список с пагинацией"""
     offset = (page - 1) * per_page
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
-            "SELECT keyword, keyword_type, added_by, added_time FROM publication_blacklist ORDER BY keyword LIMIT ? OFFSET ?",
+            "SELECT keyword, added_by, added_time FROM publication_blacklist ORDER BY keyword LIMIT ? OFFSET ?",
             (per_page, offset)
         )
         rows = await cur.fetchall()
@@ -479,6 +431,7 @@ async def get_publication_blacklist(page: int = 1, per_page: int = 5):
         return rows, total
 
 async def is_in_publication_blacklist(text: str) -> tuple[bool, str]:
+    """Проверить, содержит ли текст слова из черного списка"""
     text_lower = text.lower()
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT keyword FROM publication_blacklist")
@@ -627,12 +580,7 @@ async def update_admin_message_status(post_id: int, status: str, reason: str = N
                 admin_text += f"\n📝 <b>Причина:</b> {reason}"
             
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=button_text, 
-                        callback_data=callback_data
-                    )
-                ]
+                [InlineKeyboardButton(text=button_text, callback_data=callback_data)]
             ])
             
             try:
@@ -652,7 +600,6 @@ async def update_admin_message_status(post_id: int, status: str, reason: str = N
                         parse_mode='HTML',
                         reply_markup=kb
                     )
-                
                 logger.info(f"✅ Обновлено сообщение администраторов для поста #{post_id}")
             except Exception as e:
                 logger.error(f"Ошибка при редактировании сообщения администраторов: {e}")
@@ -764,14 +711,37 @@ def blacklist_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👤 Заблокированные пользователи", callback_data="banned_users")],
         [InlineKeyboardButton(text="📝 Черный список публикаций", callback_data="pub_blacklist")],
-        [InlineKeyboardButton(text="➕ Добавить слово в ЧС", callback_data="add_blacklist_keyword")],
-        [InlineKeyboardButton(text="🗑️ Удалить слово из ЧС", callback_data="remove_blacklist_keyword")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")]
     ])
 
+def pub_blacklist_menu(current_page: int = 1, total_pages: int = 1):
+    """Клавиатура для черного списка публикаций с кнопками управления"""
+    keyboard = []
+    
+    # Кнопки навигации
+    nav_buttons = []
+    if current_page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"pubblack_page_{current_page - 1}"))
+    if current_page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(text="Далее ▶️", callback_data=f"pubblack_page_{current_page + 1}"))
+    
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    # Кнопки управления
+    keyboard.append([
+        InlineKeyboardButton(text="➕ Добавить слово", callback_data="add_pub_blacklist"),
+        InlineKeyboardButton(text="🗑️ Удалить слово", callback_data="remove_pub_blacklist")
+    ])
+    
+    # Кнопка возврата
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="blacklist")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 def blacklist_cancel_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="blacklist")]
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="pub_blacklist")]
     ])
 
 def broadcast_menu():
@@ -828,15 +798,11 @@ def moderation_keyboard(post_id: int) -> InlineKeyboardMarkup:
 def disabled_moderation_keyboard(post_id: int, action: str = "published") -> InlineKeyboardMarkup:
     if action == "published":
         return InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="✅ Опубликовано", callback_data="disabled")
-            ]
+            [InlineKeyboardButton(text="✅ Опубликовано", callback_data="disabled")]
         ])
     else:
         return InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="❌ Отклонено", callback_data="disabled")
-            ]
+            [InlineKeyboardButton(text="❌ Отклонено", callback_data="disabled")]
         ])
 
 def back_to_previous():
@@ -897,14 +863,14 @@ def admin_reject_reason_confirm_keyboard(post_id: int):
         ]
     ])
 
-# ================== MIDDLEWARE ДЛЯ ПРОВЕРКИ ЧАТА И ТЕМЫ ==================
+# ================== MIDDLEWARE ==================
 class ChatValidationMiddleware:
     async def __call__(self, handler, event, data):
         if isinstance(event, CallbackQuery):
             if event.message.chat.type == 'private' and event.from_user.id in ADMINS:
                 admin_commands = [
                     'blacklist', 'banned_users', 'pub_blacklist', 
-                    'add_blacklist_keyword', 'remove_blacklist_keyword',
+                    'add_pub_blacklist', 'remove_pub_blacklist',
                     'banned_page_', 'pubblack_page_', 'admin_stats', 
                     'pending_posts', 'pending_page_', 'admin_panel',
                     'broadcast', 'manage_subscriptions', 'list_subscriptions',
@@ -946,94 +912,96 @@ class ChatValidationMiddleware:
         
         return await handler(event, data)
 
-# ================== MIDDLEWARE ДЛЯ ПРОВЕРКИ ПОДПИСКИ (ИСПРАВЛЕННЫЙ) ==================
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
-        # ===== СПИСОК ДЕЙСТВИЙ, КОТОРЫЕ ПРОПУСКАЮТ ПРОВЕРКУ =====
-        # Только эти действия доступны без подписки
-        allowed_without_subscription = [
-            'check_subscription',  # Кнопка проверки подписки
-        ]
+        if hasattr(event, 'from_user') and event.from_user.id in ADMINS:
+            return await handler(event, data)
         
-        # Пропускаем сообщения из групп (для них своя проверка)
+        if isinstance(event, CallbackQuery):
+            if event.message.chat.type == 'private' and event.from_user.id in ADMINS:
+                admin_commands = [
+                    'blacklist', 'banned_users', 'pub_blacklist', 
+                    'add_pub_blacklist', 'remove_pub_blacklist',
+                    'banned_page_', 'pubblack_page_', 'admin_stats', 
+                    'pending_posts', 'pending_page_', 'admin_panel',
+                    'broadcast', 'manage_subscriptions', 'list_subscriptions',
+                    'add_channel_subscription', 'add_group_subscription',
+                    'add_bot_subscription', 'remove_subscription', 
+                    'refresh_subscriptions', 'admin_publish_post', 
+                    'admin_reject_post'
+                ]
+                
+                for cmd in admin_commands:
+                    if event.data.startswith(cmd):
+                        return await handler(event, data)
+            
         if isinstance(event, Message):
             if event.chat.type in ['group', 'supergroup']:
                 return await handler(event, data)
+                
+            user_id = event.from_user.id
+            
+            if event.text and event.text == "/start":
+                return await handler(event, data)
+            
+            if await is_banned(user_id):
+                return
+            
+            is_subscribed = await get_user_subscription_status(user_id)
+            
+            if not is_subscribed:
+                is_subscribed_now, unsubscribed = await check_subscription(user_id)
+                
+                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
+                
+                if unsubscribed_required:
+                    text = (
+                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
+                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
+                    )
+                    
+                    await event.answer(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
+                    return
+                else:
+                    await update_user_subscription_status(user_id, True)
+                    return await handler(event, data)
         
-        # Пропускаем колбэки из групп
-        if isinstance(event, CallbackQuery):
+        elif isinstance(event, CallbackQuery):
             if event.message.chat.type in ['group', 'supergroup']:
                 return await handler(event, data)
-        
-        # Получаем user_id
-        if hasattr(event, 'from_user'):
-            user_id = event.from_user.id
-        else:
-            return await handler(event, data)
-        
-        # Проверяем бан
-        if await is_banned(user_id):
-            if isinstance(event, CallbackQuery):
-                await event.answer("🚫 Вы заблокированы.", show_alert=True)
-            elif isinstance(event, Message):
-                await event.answer("🚫 Вы заблокированы.")
-            return
-        
-        # Пропускаем команду /start - она сама обработает подписку
-        if isinstance(event, Message) and event.text and event.text == "/start":
-            return await handler(event, data)
-        
-        # Проверяем, является ли действие разрешенным без подписки
-        is_allowed_action = False
-        if isinstance(event, CallbackQuery):
-            for action in allowed_without_subscription:
-                if event.data.startswith(action):
-                    is_allowed_action = True
-                    break
-        
-        # Если действие разрешено без подписки - пропускаем
-        if is_allowed_action:
-            return await handler(event, data)
-        
-        # Проверяем статус подписки
-        is_subscribed = await get_user_subscription_status(user_id)
-        
-        if not is_subscribed:
-            # Проверяем актуальную подписку
-            is_subscribed_now, unsubscribed = await check_subscription(user_id)
-            
-            # Проверяем только каналы и группы
-            unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
-            
-            if unsubscribed_required:
-                # Пользователь не подписан - блокируем действие
-                text = (
-                    f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
-                    f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «✅ Я подписался»:</i>\n\n"
-                    f"⚠️ <b>Важно:</b> После подписки обязательно нажмите кнопку проверки!"
-                )
                 
-                if isinstance(event, CallbackQuery):
-                    await event.answer("⚠️ Сначала подпишитесь на обязательные каналы!", show_alert=True)
-                    await event.message.edit_text(
-                        text,
-                        parse_mode='HTML',
-                        reply_markup=get_subscription_keyboard(unsubscribed_required)
-                    )
-                elif isinstance(event, Message):
-                    await event.answer(
-                        text,
-                        parse_mode='HTML',
-                        reply_markup=get_subscription_keyboard(unsubscribed_required)
-                    )
+            user_id = event.from_user.id
+            
+            if event.data == "check_subscription":
+                return await handler(event, data)
+            
+            if await is_banned(user_id):
+                await event.answer("🚫 Вы заблокированы.", show_alert=True)
                 return
-            else:
-                # Пользователь подписан - обновляем статус
-                await update_user_subscription_status(user_id, True)
+            
+            is_subscribed = await get_user_subscription_status(user_id)
+            
+            if not is_subscribed:
+                await event.answer("⚠️ Для использования бота необходимо подписаться.", show_alert=True)
+                
+                is_subscribed_now, unsubscribed = await check_subscription(user_id)
+                
+                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
+                
+                if unsubscribed_required:
+                    text = (
+                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
+                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
+                    )
+                    
+                    await event.message.edit_text(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
+                    return
+                else:
+                    await update_user_subscription_status(user_id, True)
+                    return await handler(event, data)
         
         return await handler(event, data)
 
-# ================== РЕГИСТРАЦИЯ MIDDLEWARE ==================
 chat_validation_middleware = ChatValidationMiddleware()
 subscription_middleware = SubscriptionMiddleware()
 
@@ -1051,7 +1019,7 @@ async def start(msg: Message):
     if await is_banned(msg.from_user.id):
         ban_info = await get_ban_info(msg.from_user.id)
         if ban_info:
-            reason, ban_time, admin_id, admin_username = ban_info
+            reason, ban_time, admin_username = ban_info
             return await msg.answer(
                 f"🚫 Вы заблокированы.\n\n"
                 f"📝 Причина: {reason}\n"
@@ -1062,24 +1030,18 @@ async def start(msg: Message):
     
     await register_user(msg.from_user)
     
-    # ВАЖНО: Всегда проверяем подписку при /start
     is_subscribed, unsubscribed = await check_subscription(msg.from_user.id)
-    
-    # Проверяем только каналы и группы
     unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
     
     if unsubscribed_required:
-        # Пользователь не подписан - показываем кнопки подписки
         await msg.answer(
-            f"<b>📢 Для использования бота необходимо подписаться:</b>\n\n"
-            f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «✅ Я подписался»:</i>\n\n"
-            f"⚠️ <b>Важно:</b> После подписки обязательно нажмите кнопку проверки!",
+            f"<b>Для начала вам нужно подписаться</b>\n"
+            f"После этого нажмите на кнопку «Я подписался».\n",
             parse_mode='HTML',
-            reply_markup=get_subscription_keyboard(unsubscribed_required)
+            reply_markup=get_subscription_keyboard(unsubscribed)
         )
         return
     
-    # Пользователь подписан
     await update_user_subscription_status(msg.from_user.id, True)
     
     await msg.answer(
@@ -1092,7 +1054,6 @@ async def start(msg: Message):
         reply_markup=main_menu()
     )
 
-# ================== ПРОВЕРКА ПОДПИСКИ ПО КНОПКЕ ==================
 @dp.callback_query(F.data == "check_subscription")
 async def check_subscription_callback(cb: CallbackQuery):
     if cb.message.chat.type not in ['private']:
@@ -1102,20 +1063,17 @@ async def check_subscription_callback(cb: CallbackQuery):
     
     is_subscribed, unsubscribed = await check_subscription(cb.from_user.id)
     
-    # Проверяем только каналы и группы
     unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
     
     if unsubscribed_required:
         await cb.message.edit_text(
-            f"<b>❌ Вы еще не подписались!</b>\n\n"
-            f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «✅ Я подписался» еще раз:</i>\n\n"
-            f"⚠️ <b>Важно:</b> После подписки обязательно нажмите кнопку проверки!",
+            f"<b>Вы еще не подписались 😡</b>\n"
+            f"После подписки нажмите кнопку «Я подписался» еще раз",
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed_required)
         )
         return
     
-    # Пользователь подписан
     await update_user_subscription_status(cb.from_user.id, True)
     
     await cb.message.edit_text(
@@ -1129,7 +1087,7 @@ async def check_subscription_callback(cb: CallbackQuery):
         reply_markup=main_menu()
     )
 
-# ================== КОМАНДА ДЛЯ АДМИНОВ ДЛЯ УПРАВЛЕНИЯ ПОДПИСКАМИ ==================
+# ================== УПРАВЛЕНИЕ ПОДПИСКАМИ ==================
 @dp.callback_query(F.data == "manage_subscriptions")
 async def manage_subscriptions(cb: CallbackQuery):
     if cb.from_user.id not in ADMINS:
@@ -1665,7 +1623,6 @@ async def get_text_only(msg: Message, state: FSMContext):
     await send_to_moderation(post_id)
     await log("new_post", f"text post #{post_id} from user {msg.from_user.id}")
 
-# ================== ОБРАБОТЧИК КНОПКИ "НАЗАД" ==================
 @dp.callback_query(F.data == "back_to_previous_step")
 async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -1712,7 +1669,6 @@ async def send_to_moderation(post_id: int):
         
         try:
             if photo:
-                logger.info(f"Отправляю фото-пост #{post_id} модераторам в тему {MODERATORS_TOPIC_ID}")
                 sent_msg = await bot.send_photo(
                     chat_id=MODERATORS_CHAT_ID,
                     message_thread_id=MODERATORS_TOPIC_ID,
@@ -1722,7 +1678,6 @@ async def send_to_moderation(post_id: int):
                     reply_markup=moderation_keyboard(post_id)
                 )
             else:
-                logger.info(f"Отправляю текстовый пост #{post_id} модераторам в тему {MODERATORS_TOPIC_ID}")
                 sent_msg = await bot.send_message(
                     chat_id=MODERATORS_CHAT_ID,
                     message_thread_id=MODERATORS_TOPIC_ID,
@@ -1731,8 +1686,7 @@ async def send_to_moderation(post_id: int):
                     reply_markup=moderation_keyboard(post_id)
                 )
             
-            logger.info(f"✅ Пост #{post_id} отправлен модераторам в чат {MODERATORS_CHAT_ID}, тема {MODERATORS_TOPIC_ID}")
-            
+            logger.info(f"✅ Пост #{post_id} отправлен модераторам")
             await update_post_message_ids(post_id, moderators_message_id=sent_msg.message_id)
                 
         except Exception as e:
@@ -1814,8 +1768,7 @@ async def send_to_admins(post_id: int):
                 )
             
             await update_post_message_ids(post_id, admins_message_id=sent_msg.message_id)
-            
-            logger.info(f"✅ Пост #{post_id} отправлен администраторам в чат {ADMINS_CHAT_ID}, тема {ADMINS_TOPIC_ID}")
+            logger.info(f"✅ Пост #{post_id} отправлен администраторам")
             
         except Exception as e:
             logger.error(f"Ошибка отправки поста #{post_id} администраторам: {e}")
@@ -2000,7 +1953,7 @@ async def cancel_pub(cb: CallbackQuery):
     )
     await cb.answer()
 
-# ================== ОТКЛОНЕНИЕ С ТАЙМАУТОМ ==================
+# ================== ОТКЛОНЕНИЕ ==================
 async def reset_reject_state(post_id: int, message_id: int, chat_id: int, text: str, photo: str = None):
     try:
         if photo:
@@ -2019,14 +1972,12 @@ async def reset_reject_state(post_id: int, message_id: int, chat_id: int, text: 
                 parse_mode='HTML',
                 reply_markup=moderation_keyboard(post_id)
             )
-        logger.info(f"✅ Состояние отказа для поста #{post_id} сброшено (таймаут)")
+        logger.info(f"✅ Состояние отказа для поста #{post_id} сброшено")
     except TelegramBadRequest as e:
-        if "message is not modified" in str(e):
-            logger.debug(f"Сообщение #{post_id} уже имеет нужное состояние")
-        else:
-            logger.error(f"Ошибка при сбросе состояния отказа для поста #{post_id}: {e}")
+        if "message is not modified" not in str(e):
+            logger.error(f"Ошибка при сбросе состояния отказа: {e}")
     except Exception as e:
-        logger.error(f"Ошибка при сбросе состояния отказа для поста #{post_id}: {e}")
+        logger.error(f"Ошибка при сбросе состояния отказа: {e}")
 
 async def reject_timeout_handler(state: FSMContext, post_id: int, message_id: int, 
                                 chat_id: int, original_text: str, photo: str = None):
@@ -2117,9 +2068,7 @@ async def cancel_rej(cb: CallbackQuery, state: FSMContext):
     photo = data.get("photo")
     
     await state.clear()
-    
     await reset_reject_state(pid, message_id, chat_id, original_text, photo)
-    
     await cb.answer("❌ Отмена отклонения")
 
 @dp.message(RejectState.wait_reason)
@@ -2207,7 +2156,6 @@ async def reject_reason(msg: Message, state: FSMContext):
         text="✅ Причина отправлена пользователю."
     )
 
-# ================== ОБРАБОТЧИК ДЛЯ ОТКЛЮЧЕННЫХ КНОПОК ==================
 @dp.callback_query(F.data == "disabled")
 async def disabled_button_handler(cb: CallbackQuery):
     await cb.answer("❌ Это действие недоступно - пост уже был обработан модератором", show_alert=True)
@@ -2261,8 +2209,6 @@ async def profile(cb: CallbackQuery):
         reg = row[0] if row else "Неизвестно"
         is_subscribed = row[1] if row and row[1] == 1 else 0
 
-    subscription_status = "✅ Подписан" if is_subscribed else "❌ Не подписан"
-
     text = (
         f"👤 <b>Профиль</b>\n\n"
         f"🆔 <b>ID:</b> <code>{cb.from_user.id}</code>\n"
@@ -2271,7 +2217,6 @@ async def profile(cb: CallbackQuery):
         f"• Постов за день: {today}/5\n"
         f"• Постов за неделю: {week}\n\n"
         f"📅 <b>Дата регистрации:</b> {reg}\n"
-        f"🔔 <b>Статус подписки:</b> {subscription_status}\n"
         f"🕵 <b>Разработчик: @theaugustine</b>"
     )
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=menu_btn())
@@ -2357,7 +2302,7 @@ async def ban_command(msg: Message):
                 f"👮 <b>Администратор:</b> @{msg.from_user.username or 'без username'}\n"
                 f"🆔 <b>ID администратора:</b> {msg.from_user.id}\n\n"
                 f"🔒 <b>Вы больше не можете использовать меню бота</b>\n\n"
-                f"📞 <b>Для разблокировки:</b> Свяжитесь с @theaugustine (услуга разблокировки не бесплатна)",
+                f"📞 <b>Для разблокировки:</b> Свяжитесь с @theaugustine",
                 parse_mode='HTML'
             )
         except Exception as e:
@@ -2409,92 +2354,6 @@ async def unban_command(msg: Message):
         
     except ValueError:
         await msg.answer("❌ Неверный формат ID пользователя. ID должен быть числом.")
-
-@dp.message(F.text.startswith("/blacklist_add"))
-async def blacklist_add_command(msg: Message):
-    if msg.from_user.id not in ADMINS:
-        return
-    
-    parts = msg.text.split(maxsplit=1)
-    if len(parts) < 2:
-        return await msg.answer(
-            "❌ <b>Использование:</b> <code>/blacklist_add &lt;слово или фраза&gt;</code>\n\n"
-            "<i>Примеры:</i>\n"
-            "<code>/blacklist_add @spammer</code>\n"
-            "<code>/blacklist_add плохое слово</code>\n"
-            "<code>/blacklist_add запрещенная реклама</code>",
-            parse_mode='HTML'
-        )
-    
-    keyword = parts[1].strip()
-    if len(keyword) < 2:
-        return await msg.answer("❌ Ключевое слово должно содержать минимум 2 символа.")
-    
-    success = await add_to_publication_blacklist(keyword, msg.from_user.id)
-    
-    if success:
-        await msg.answer(
-            f"✅ Добавлено в черный список публикаций: <code>{keyword}</code>\n\n"
-            f"📝 Теперь посты, содержащие это слово/фразу, будут автоматически отклоняться.",
-            parse_mode='HTML'
-        )
-        await log("blacklist_add", f"admin {msg.from_user.id} added '{keyword}'")
-    else:
-        await msg.answer(f"❌ Ключевое слово <code>{keyword}</code> уже есть в черном списке.", parse_mode='HTML')
-
-@dp.message(F.text.startswith("/blacklist_remove"))
-async def blacklist_remove_command(msg: Message):
-    if msg.from_user.id not in ADMINS:
-        return
-    
-    parts = msg.text.split(maxsplit=1)
-    if len(parts) < 2:
-        return await msg.answer(
-            "❌ <b>Использование:</b> <code>/blacklist_remove &lt;слово или фраза&gt;</code>\n\n"
-            "<i>Примеры:</i>\n"
-            "<code>/blacklist_remove @theaugustine</code>\n"
-            "<code>/blacklist_remove плохое слово</code>",
-            parse_mode='HTML'
-        )
-    
-    keyword = parts[1].strip()
-    
-    await remove_from_publication_blacklist(keyword)
-    
-    await msg.answer(
-        f"✅ Удалено из черного списка публикаций: <code>{keyword}</code>\n\n"
-        f"📝 Теперь посты могут содержать это слово/фразу.",
-        parse_mode='HTML'
-    )
-    await log("blacklist_remove", f"admin {msg.from_user.id} removed '{keyword}'")
-
-@dp.message(F.text.startswith("/blacklist"))
-async def blacklist_show_command(msg: Message):
-    if msg.from_user.id not in ADMINS:
-        return
-    
-    blacklist, total = await get_publication_blacklist(page=1, per_page=100)
-    
-    if not blacklist:
-        return await msg.answer("📝 Черный список публикаций пуст.")
-    
-    text_lines = ["📋 <b>Черный список публикаций:</b>\n\n"]
-    
-    for i, (keyword, keyword_type, added_by, added_time) in enumerate(blacklist, 1):
-        try:
-            time_str = datetime.fromisoformat(added_time).strftime('%d.%m.%Y')
-        except:
-            time_str = added_time
-        
-        text_lines.append(f"{i}. <code>{keyword}</code>")
-        text_lines.append(f"   👤 Добавил: {added_by} | 📅 {time_str}\n")
-    
-    text = "\n".join(text_lines)
-    
-    if len(text) > 4000:
-        text = text[:4000] + "\n\n... (список слишком длинный)"
-    
-    await msg.answer(text, parse_mode='HTML')
 
 # ================== ADMIN PANEL ==================
 @dp.message(F.text == "/admin")
@@ -2629,6 +2488,7 @@ async def show_pub_blacklist(cb: CallbackQuery):
     await show_pub_blacklist_page(cb, page=1)
 
 async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
+    """Показать страницу черного списка публикаций"""
     blacklist, total = await get_publication_blacklist(page=page, per_page=5)
     total_pages = (total + 4) // 5
     
@@ -2640,19 +2500,13 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
     text_lines = [f"📋 <b>Черный список публикаций (стр. {page}/{total_pages}):</b>\n\n"]
     
     start_idx = (page - 1) * 5 + 1
-    for i, (keyword, keyword_type, added_by, added_time) in enumerate(blacklist, start_idx):
+    for i, (keyword, added_by, added_time) in enumerate(blacklist, start_idx):
         try:
-            if added_time:
-                time_str = datetime.fromisoformat(added_time).strftime('%d.%m.%Y %H:%M')
-            else:
-                time_str = "неизвестно"
+            time_str = datetime.fromisoformat(added_time).strftime('%d.%m.%Y %H:%M')
         except:
             time_str = added_time or "неизвестно"
         
-        type_emoji = "🔤" if keyword_type == "text" else "👤"
-        
-        text_lines.append(f"<b>{i}. {type_emoji} <code>{keyword}</code></b>")
-        
+        # Пытаемся получить username админа
         admin_info = ""
         if added_by:
             try:
@@ -2668,6 +2522,7 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
         else:
             admin_info = "неизвестно"
         
+        text_lines.append(f"<b>{i}. 🔤 <code>{keyword}</code></b>")
         text_lines.append(f"   👤 Добавил: {admin_info}")
         text_lines.append(f"   🕐 Время: {time_str}\n")
     
@@ -2679,7 +2534,7 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
     await cb.message.edit_text(
         text, 
         parse_mode='HTML', 
-        reply_markup=pagination_keyboard(page, total_pages, "pubblack", "blacklist")
+        reply_markup=pub_blacklist_menu(page, total_pages)
     )
 
 @dp.callback_query(F.data.startswith("pubblack_page_"))
@@ -2694,8 +2549,8 @@ async def pubblack_page_handler(cb: CallbackQuery):
         await cb.answer("❌ Ошибка при загрузке страницы", show_alert=True)
 
 # ================== ДОБАВЛЕНИЕ В ЧЕРНЫЙ СПИСОК ==================
-@dp.callback_query(F.data == "add_blacklist_keyword")
-async def add_blacklist_keyword(cb: CallbackQuery, state: FSMContext):
+@dp.callback_query(F.data == "add_pub_blacklist")
+async def add_pub_blacklist(cb: CallbackQuery, state: FSMContext):
     if cb.from_user.id not in ADMINS:
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
@@ -2704,8 +2559,8 @@ async def add_blacklist_keyword(cb: CallbackQuery, state: FSMContext):
         "📝 <b>Добавление слова в черный список публикаций</b>\n\n"
         "Отправьте слово или фразу, которую хотите добавить в черный список.\n\n"
         "<i>Примеры:</i>\n"
-        "• @theaugustine - для блокировки упоминаний юзернейма\n"
-        "• Яков Дибилкин - для блокировки ФИО\n"
+        "• @spammer - для блокировки упоминаний юзернейма\n"
+        "• плохое слово - для блокировки конкретного слова\n"
         "• запрещенная фраза - для блокировки конкретной фразы\n\n"
         "⚠️ <b>Внимание:</b> Регистр не учитывается.",
         parse_mode='HTML',
@@ -2713,7 +2568,7 @@ async def add_blacklist_keyword(cb: CallbackQuery, state: FSMContext):
     )
 
 @dp.message(BlacklistState.wait_keyword)
-async def process_blacklist_keyword(msg: Message, state: FSMContext):
+async def process_pub_blacklist_keyword(msg: Message, state: FSMContext):
     if msg.from_user.id not in ADMINS:
         return
     
@@ -2722,13 +2577,7 @@ async def process_blacklist_keyword(msg: Message, state: FSMContext):
         await msg.answer("❌ Ключевое слово должно содержать минимум 2 символа.")
         return
     
-    keyword_type = "text"
-    if keyword.startswith("@"):
-        keyword_type = "username"
-    elif keyword.isdigit():
-        keyword_type = "user_id"
-    
-    success = await add_to_publication_blacklist(keyword, msg.from_user.id, keyword_type)
+    success = await add_to_publication_blacklist(keyword, msg.from_user.id)
     
     if success:
         await msg.answer(
@@ -2747,53 +2596,51 @@ async def process_blacklist_keyword(msg: Message, state: FSMContext):
     
     await state.clear()
 
-@dp.callback_query(F.data == "remove_blacklist_keyword")
-async def remove_blacklist_keyword(cb: CallbackQuery, state: FSMContext):
+# ================== УДАЛЕНИЕ ИЗ ЧЕРНОГО СПИСКА ==================
+@dp.callback_query(F.data == "remove_pub_blacklist")
+async def remove_pub_blacklist(cb: CallbackQuery, state: FSMContext):
     if cb.from_user.id not in ADMINS:
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
-    await state.set_state(BlacklistState.wait_remove_keyword)
+    blacklist, total = await get_publication_blacklist(page=1, per_page=100)
     
-    blacklist, total = await get_publication_blacklist(page=1, per_page=5)
+    if not blacklist:
+        return await cb.answer("📋 Черный список публикаций пуст.", show_alert=True)
     
-    if blacklist:
-        preview = "\n".join([f"• <code>{keyword}</code>" for keyword, _, _, _ in blacklist])
-        if total > 5:
-            preview += f"\n... и еще {total - 5} слов"
-        
-        text = (
-            f"🗑️ <b>Удаление слова из черного списка публикаций</b>\n\n"
-            f"📋 <b>Текущий список (первые 5):</b>\n{preview}\n\n"
-            f"Отправьте слово или фразу, которую хотите удалить из черного списка."
-        )
-    else:
-        text = (
-            "🗑️ <b>Удаление слова из черного списка публикаций</b>\n\n"
-            "📋 Черный список публикаций пуст.\n\n"
-            "Отправьте слово или фразу, которую хотите удалить из черного списка."
-        )
+    # Создаем клавиатуру со списком слов
+    keyboard = []
+    for i, (keyword, added_by, added_time) in enumerate(blacklist, 1):
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"{i}. {keyword}",
+                callback_data=f"remove_blacklist_word_{keyword}"
+            )
+        ])
     
-    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=blacklist_cancel_menu())
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="pub_blacklist")])
+    
+    await cb.message.edit_text(
+        "🗑️ <b>Удаление слова из черного списка публикаций</b>\n\n"
+        "Выберите слово для удаления:",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
+    )
 
-@dp.message(BlacklistState.wait_remove_keyword)
-async def process_remove_blacklist_keyword(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
-        return
+@dp.callback_query(F.data.startswith("remove_blacklist_word_"))
+async def process_remove_blacklist_word(cb: CallbackQuery):
+    if cb.from_user.id not in ADMINS:
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
-    keyword = msg.text.strip()
+    keyword = cb.data.replace("remove_blacklist_word_", "")
     
     await remove_from_publication_blacklist(keyword)
     
-    await msg.answer(
-        f"✅ Удалено из черного списка публикаций: <code>{keyword}</code>\n\n"
-        f"📝 Теперь посты могут содержать это слово/фразу.",
-        parse_mode='HTML',
-        reply_markup=blacklist_menu()
-    )
-    await log("blacklist_remove", f"admin {msg.from_user.id} removed '{keyword}'")
+    await cb.answer(f"✅ Слово '{keyword}' удалено из черного списка", show_alert=True)
     
-    await state.clear()
+    # Возвращаемся к списку
+    await show_pub_blacklist_page(cb, page=1)
 
+# ================== АДМИНСКАЯ СТАТИСТИКА ==================
 @dp.callback_query(F.data == "admin_stats")
 async def admin_stats(cb: CallbackQuery):
     if cb.from_user.id not in ADMINS:
@@ -2846,6 +2693,7 @@ async def admin_stats(cb: CallbackQuery):
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu())
 
+# ================== ЛОГИ ==================
 @dp.callback_query(F.data == "admin_logs")
 async def show_admin_logs(cb: CallbackQuery):
     if cb.from_user.id not in ADMINS:
@@ -3008,8 +2856,6 @@ async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
         post_id = int(cb.data.split("_")[3])
     except (ValueError, IndexError):
         return await cb.answer("❌ Неверный ID поста", show_alert=True)
-    
-    data = await state.get_data()
     
     post = await get_post_by_id(post_id)
     
@@ -3192,7 +3038,6 @@ async def process_reject_reason(msg: Message, state: FSMContext):
         )
     
     reason = msg.text.strip()
-    
     await state.update_data(reject_reason=reason)
     
     preview_text = (
@@ -3248,7 +3093,6 @@ async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
             (cb.from_user.id, str(datetime.now()), reason, post_id)
         )
         await db.commit()
-        
         await update_admin_message_status(post_id, "rejected", reason)
     
     try:
@@ -3281,13 +3125,12 @@ async def admin_reject_cancel(cb: CallbackQuery, state: FSMContext):
     await state.clear()
     await show_pending_posts_page(cb, page=1)
 
-# ================== BROADCAST FUNCTIONALITY ==================
+# ================== BROADCAST ==================
 def message_to_html(text: str, entities: list = None) -> str:
     if not entities:
         return text
     
     sorted_entities = sorted(entities, key=lambda e: e.length, reverse=True)
-    
     html_text = text
     offset_shift = 0
     
@@ -3375,7 +3218,6 @@ async def process_broadcast_text(msg: Message, state: FSMContext):
     
     text = msg.text or msg.caption
     entities = msg.entities or msg.caption_entities
-    
     html_text = message_to_html(text, entities)
     
     await state.update_data(
@@ -3440,7 +3282,6 @@ async def process_broadcast_text_with_photo(msg: Message, state: FSMContext):
     
     text = msg.text or msg.caption
     entities = msg.entities or msg.caption_entities
-    
     html_text = message_to_html(text, entities)
     
     await state.update_data(
@@ -3475,25 +3316,14 @@ async def show_broadcast_preview(msg: Message, state: FSMContext):
                 parse_mode='HTML'
             )
         else:
-            await msg.answer(
-                preview_header,
-                parse_mode='HTML'
-            )
-            await msg.answer(
-                broadcast_text,
-                entities=broadcast_entities
-            )
+            await msg.answer(preview_header, parse_mode='HTML')
+            await msg.answer(broadcast_text, entities=broadcast_entities)
     except Exception as e:
         logger.error(f"Ошибка при предпросмотре: {e}")
         try:
-            await msg.answer(
-                preview_header + "\n" + broadcast_html,
-                parse_mode='HTML'
-            )
+            await msg.answer(preview_header + "\n" + broadcast_html, parse_mode='HTML')
         except:
-            await msg.answer(
-                f"{preview_header}\n{broadcast_text}"
-            )
+            await msg.answer(f"{preview_header}\n{broadcast_text}")
     
     await msg.answer(
         "👇 <b>Подтвердите рассылку:</b>",

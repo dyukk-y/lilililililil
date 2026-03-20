@@ -40,7 +40,6 @@ def is_valid_moderators_chat(message: Message) -> bool:
     if message.chat.id != MODERATORS_CHAT_ID:
         return False
     
-    # Проверяем тему, если это группа с темами
     if message.message_thread_id is not None and message.message_thread_id != MODERATORS_TOPIC_ID:
         return False
     
@@ -51,7 +50,6 @@ def is_valid_admins_chat(message: Message) -> bool:
     if message.chat.id != ADMINS_CHAT_ID:
         return False
     
-    # Проверяем тему, если это группа с темами
     if message.message_thread_id is not None and message.message_thread_id != ADMINS_TOPIC_ID:
         return False
     
@@ -62,7 +60,6 @@ async def validate_chat_for_moderation(callback: CallbackQuery) -> bool:
     if callback.message.chat.id != MODERATORS_CHAT_ID:
         return False
     
-    # Для групп с темами проверяем ID темы
     if callback.message.message_thread_id is not None:
         return callback.message.message_thread_id == MODERATORS_TOPIC_ID
     
@@ -73,7 +70,6 @@ async def validate_chat_for_admin_actions(callback: CallbackQuery) -> bool:
     if callback.message.chat.id != ADMINS_CHAT_ID:
         return False
     
-    # Для групп с темами проверяем ID темы
     if callback.message.message_thread_id is not None:
         return callback.message.message_thread_id == ADMINS_TOPIC_ID
     
@@ -83,7 +79,6 @@ async def validate_chat_for_admin_actions(callback: CallbackQuery) -> bool:
 async def init_db():
     """Инициализация базы данных"""
     async with aiosqlite.connect(DB_NAME) as db:
-        # Таблица users
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users(
             user_id INTEGER PRIMARY KEY,
@@ -92,7 +87,6 @@ async def init_db():
             is_subscribed INTEGER DEFAULT 0
         )""")
         
-        # Таблица posts
         await db.execute("""
         CREATE TABLE IF NOT EXISTS posts(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,7 +104,6 @@ async def init_db():
             chat_id_admins INTEGER
         )""")
         
-        # Таблица bans
         await db.execute("""
         CREATE TABLE IF NOT EXISTS bans(
             user_id INTEGER PRIMARY KEY,
@@ -120,7 +113,6 @@ async def init_db():
             admin_username TEXT
         )""")
         
-        # Таблица publication_blacklist
         await db.execute("""
         CREATE TABLE IF NOT EXISTS publication_blacklist(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,7 +122,6 @@ async def init_db():
             added_time TEXT
         )""")
         
-        # Таблица logs
         await db.execute("""
         CREATE TABLE IF NOT EXISTS logs(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,7 +130,6 @@ async def init_db():
             time TEXT
         )""")
         
-        # Таблица required_subscriptions
         await db.execute("""
         CREATE TABLE IF NOT EXISTS required_subscriptions(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,7 +146,6 @@ async def init_db():
         await db.commit()
         logger.info("База данных инициализирована")
         
-        # Загружаем подписки из базы данных
         await load_subscriptions_from_db()
 
 async def load_subscriptions_from_db():
@@ -173,19 +162,17 @@ async def load_subscriptions_from_db():
         if rows:
             REQUIRED_SUBSCRIPTIONS = []
             for row in rows:
-                # ID уже хранится как строка в БД
                 sub_id = row[1]
                 
                 REQUIRED_SUBSCRIPTIONS.append({
                     "type": row[0],
-                    "id": sub_id,  # Оставляем как строку
+                    "id": sub_id,
                     "username": row[2],
                     "name": row[3],
                     "url": row[4]
                 })
             logger.info(f"Загружено {len(REQUIRED_SUBSCRIPTIONS)} обязательных подписок из БД")
         else:
-            # Если нет подписок в БД, сохраняем текущие (из config)
             await save_subscriptions_to_db()
 
 async def save_subscriptions_to_db():
@@ -194,7 +181,6 @@ async def save_subscriptions_to_db():
         await db.execute("DELETE FROM required_subscriptions")
         
         for sub in REQUIRED_SUBSCRIPTIONS:
-            # Убеждаемся, что ID сохраняется как строка
             sub_id = str(sub["id"])
             
             await db.execute("""
@@ -251,25 +237,20 @@ async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     for sub in REQUIRED_SUBSCRIPTIONS:
         if sub["type"] in ["channel", "group"]:
             try:
-                # Преобразуем ID в целое число
                 chat_id = int(sub["id"])
                 
-                # Пытаемся получить информацию о пользователе в чате
                 try:
                     chat_member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
                     
-                    # Проверяем статус участника
                     if chat_member.status in ["member", "administrator", "creator"]:
                         logger.info(f"Пользователь {user_id} подписан на {sub['type']} {sub['name']}")
-                        continue  # Подписан, переходим к следующей подписке
+                        continue
                     else:
                         logger.info(f"Пользователь {user_id} НЕ подписан на {sub['type']} {sub['name']} (статус: {chat_member.status})")
                         unsubscribed.append(sub)
                         
                 except TelegramForbiddenError:
-                    # Бот не может получить информацию о пользователе (не админ или нет прав)
-                    logger.error(f"Бот не имеет прав для проверки {sub['type']} {sub['name']} (ID: {chat_id}). Убедитесь, что бот администратор и имеет права на просмотр участников")
-                    # В этом случае считаем, что пользователь не подписан
+                    logger.error(f"Бот не имеет прав для проверки {sub['type']} {sub['name']} (ID: {chat_id})")
                     unsubscribed.append(sub)
                     
                 except Exception as e:
@@ -277,28 +258,20 @@ async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
                     unsubscribed.append(sub)
                     
             except ValueError:
-                # Если ID не число, пробуем использовать как username
                 try:
-                    # Пробуем получить ID чата по username
-                    try:
-                        chat = await bot.get_chat(chat_id=sub["id"])
-                        actual_chat_id = chat.id
-                        
-                        chat_member = await bot.get_chat_member(chat_id=actual_chat_id, user_id=user_id)
-                        if chat_member.status in ["member", "administrator", "creator"]:
-                            continue
-                        else:
-                            unsubscribed.append(sub)
-                    except Exception as e:
-                        logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
+                    chat = await bot.get_chat(chat_id=sub["id"])
+                    actual_chat_id = chat.id
+                    
+                    chat_member = await bot.get_chat_member(chat_id=actual_chat_id, user_id=user_id)
+                    if chat_member.status in ["member", "administrator", "creator"]:
+                        continue
+                    else:
                         unsubscribed.append(sub)
-                        
                 except Exception as e:
                     logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
                     unsubscribed.append(sub)
                     
         elif sub["type"] == "bot":
-            # Для ботов не проверяем подписку, просто добавляем в список
             unsubscribed.append(sub)
     
     return len(unsubscribed) == 0, unsubscribed
@@ -327,7 +300,6 @@ def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> Inli
             )
         ])
     
-    # Добавляем кнопку проверки только если есть каналы/группы для подписки
     has_required = any(sub["type"] in ["channel", "group"] for sub in subscriptions_to_show)
     
     if has_required:
@@ -434,7 +406,6 @@ async def unban_user(user_id: int):
     await log("unban", f"user {user_id} unbanned")
 
 async def get_banned_users(page: int = 1, per_page: int = 5):
-    """Получить список заблокированных пользователей с пагинацией"""
     offset = (page - 1) * per_page
     async with aiosqlite.connect(DB_NAME) as db:
         try:
@@ -447,7 +418,6 @@ async def get_banned_users(page: int = 1, per_page: int = 5):
             """, (per_page, offset))
             rows = await cur.fetchall()
             
-            # Получаем общее количество
             cur_count = await db.execute("SELECT COUNT(*) FROM bans")
             total = (await cur_count.fetchone())[0]
             
@@ -472,7 +442,6 @@ async def get_banned_users(page: int = 1, per_page: int = 5):
             return result, total
 
 async def add_to_publication_blacklist(keyword: str, admin_id: int, keyword_type: str = "text"):
-    """Добавить ключевое слово в черный список для публикаций"""
     keyword_clean = keyword.strip().lower()
     async with aiosqlite.connect(DB_NAME) as db:
         try:
@@ -486,7 +455,6 @@ async def add_to_publication_blacklist(keyword: str, admin_id: int, keyword_type
             return False
 
 async def remove_from_publication_blacklist(keyword: str):
-    """Удалить ключевое слово из черного списка"""
     keyword_clean = keyword.strip().lower()
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
@@ -497,7 +465,6 @@ async def remove_from_publication_blacklist(keyword: str):
         return True
 
 async def get_publication_blacklist(page: int = 1, per_page: int = 5):
-    """Получить черный список с пагинацией"""
     offset = (page - 1) * per_page
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
@@ -512,7 +479,6 @@ async def get_publication_blacklist(page: int = 1, per_page: int = 5):
         return rows, total
 
 async def is_in_publication_blacklist(text: str) -> tuple[bool, str]:
-    """Проверить, содержит ли текст слова из черного списка"""
     text_lower = text.lower()
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT keyword FROM publication_blacklist")
@@ -528,8 +494,6 @@ async def register_user(user: User):
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT 1 FROM users WHERE user_id=?", (user.id,))
         if not await cur.fetchone():
-            # Сначала создаем запись с is_subscribed = 0
-            # Потом пользователь должен будет проверить подписку
             await db.execute(
                 "INSERT INTO users(user_id, username, reg_date, is_subscribed) VALUES(?,?,?,?)",
                 (user.id, user.username, str(datetime.now().date()), 0)
@@ -558,21 +522,18 @@ async def posts_week(user_id: int) -> int:
         return row[0] if row else 0
 
 async def get_all_users():
-    """Получить всех пользователей бота"""
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT user_id FROM users")
         rows = await cur.fetchall()
         return [row[0] for row in rows]
 
 async def get_users_count():
-    """Получить количество пользователей"""
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT COUNT(*) FROM users")
         row = await cur.fetchone()
         return row[0] if row else 0
 
 async def get_post_status(post_id: int) -> str:
-    """Получить статус поста"""
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT status FROM posts WHERE id=?",
@@ -582,7 +543,6 @@ async def get_post_status(post_id: int) -> str:
         return row[0] if row else ""
 
 async def get_post_moderator_info(post_id: int):
-    """Получить информацию о модераторе поста"""
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT moderator_id, reject_reason FROM posts WHERE id=?",
@@ -603,7 +563,6 @@ async def get_post_moderator_info(post_id: int):
 
 async def update_post_message_ids(post_id: int, moderators_message_id: int = None, 
                                  admins_message_id: int = None):
-    """Обновить ID сообщений поста в группах"""
     async with aiosqlite.connect(DB_NAME) as db:
         if moderators_message_id:
             await db.execute(
@@ -618,7 +577,6 @@ async def update_post_message_ids(post_id: int, moderators_message_id: int = Non
         await db.commit()
 
 async def update_admin_message_status(post_id: int, status: str, reason: str = None):
-    """Обновить сообщение в группе администраторов при изменении статуса поста"""
     try:
         async with aiosqlite.connect(DB_NAME) as db:
             cur = await db.execute("""
@@ -703,7 +661,6 @@ async def update_admin_message_status(post_id: int, status: str, reason: str = N
         logger.error(f"Ошибка обновления сообщения администраторов для поста #{post_id}: {e}")
 
 async def get_pending_posts(page: int = 1, per_page: int = 5):
-    """Получить посты на модерации с пагинацией"""
     offset = (page - 1) * per_page
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
@@ -718,7 +675,6 @@ async def get_pending_posts(page: int = 1, per_page: int = 5):
         return rows, total
 
 async def get_post_by_id(post_id: int):
-    """Получить пост по ID"""
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT id, user_id, text, photo, time, status FROM posts WHERE id=?",
@@ -728,7 +684,6 @@ async def get_post_by_id(post_id: int):
 
 # ================== VALIDATION ==================
 def validate_post_text(text: str) -> tuple[bool, str]:
-    """Проверяет текст поста на соответствие требованиям."""
     if not text or text.strip() == "":
         return False, "❌ Текст поста не может быть пустым."
     
@@ -752,7 +707,6 @@ def validate_post_text(text: str) -> tuple[bool, str]:
 
 # ================== KEYBOARDS ==================
 def main_menu():
-    """Красивое главное меню с новым расположением кнопок"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📩 Предложить пост", callback_data="offer")],
         [
@@ -773,7 +727,6 @@ def menu_btn():
     ])
 
 def rules_keyboard():
-    """Клавиатура для правил с кнопкой Юр.увед."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚖️ Юридическое уведомление", url="https://teletype.in/@smotrmaslyanino/responsibility")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")]
@@ -785,7 +738,6 @@ def back_to_post_type():
     ])
 
 def faq_keyboard():
-    """Клавиатура для FAQ с кнопкой удаления записи и админами"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🗑️ Удалить запись", url="https://t.me/nekon4il")],
         [InlineKeyboardButton(text="👥 Администрация", callback_data="admins")],
@@ -793,14 +745,12 @@ def faq_keyboard():
     ])
 
 def admins_keyboard():
-    """Клавиатура для страницы админов"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="faq")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 
 def admin_menu():
-    """Клавиатура админ-панели (только для администраторов)"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
         [InlineKeyboardButton(text="📨 Посты на модерации", callback_data="pending_posts")],
@@ -811,7 +761,6 @@ def admin_menu():
     ])
 
 def blacklist_menu():
-    """Меню черного списка"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👤 Заблокированные пользователи", callback_data="banned_users")],
         [InlineKeyboardButton(text="📝 Черный список публикаций", callback_data="pub_blacklist")],
@@ -821,13 +770,11 @@ def blacklist_menu():
     ])
 
 def blacklist_cancel_menu():
-    """Клавиатура отмены для черного списка"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="blacklist")]
     ])
 
 def broadcast_menu():
-    """Клавиатура для выбора типа рассылки"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 Текстовая рассылка", callback_data="broadcast_text")],
         [InlineKeyboardButton(text="📷 Рассылка с фото", callback_data="broadcast_photo")],
@@ -835,7 +782,6 @@ def broadcast_menu():
     ])
 
 def broadcast_confirm_menu():
-    """Клавиатура подтверждения рассылки"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Начать рассылку", callback_data="broadcast_start"),
@@ -844,13 +790,11 @@ def broadcast_confirm_menu():
     ])
 
 def broadcast_cancel_menu():
-    """Клавиатура отмены рассылки"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отменить", callback_data="broadcast_cancel")]
     ])
 
 def subscriptions_menu():
-    """Меню управления обязательными подписками"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📋 Список подписок", callback_data="list_subscriptions")],
         [InlineKeyboardButton(text="➕ Добавить канал", callback_data="add_channel_subscription")],
@@ -862,13 +806,11 @@ def subscriptions_menu():
     ])
 
 def subscription_cancel_menu():
-    """Клавиатура отмены для управления подписками"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_subscriptions")]
     ])
 
 def ads_keyboard():
-    """Клавиатура для платного поста с кнопкой Прайс-лист"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💰 Прайс-лист", url="https://t.me/smotrmaslyanino_price")],
         [InlineKeyboardButton(text="🛒 Купить", url="https://t.me/theaugustine")],
@@ -876,7 +818,6 @@ def ads_keyboard():
     ])
 
 def moderation_keyboard(post_id: int) -> InlineKeyboardMarkup:
-    """Создает клавиатуру для модерации поста"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Опубликовать", callback_data=f"pub_{post_id}"),
@@ -885,14 +826,13 @@ def moderation_keyboard(post_id: int) -> InlineKeyboardMarkup:
     ])
 
 def disabled_moderation_keyboard(post_id: int, action: str = "published") -> InlineKeyboardMarkup:
-    """Создает клавиатуру с отключенными кнопками после модерации"""
     if action == "published":
         return InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ Опубликовано", callback_data="disabled")
             ]
         ])
-    else:  # rejected
+    else:
         return InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="❌ Отклонено", callback_data="disabled")
@@ -900,16 +840,13 @@ def disabled_moderation_keyboard(post_id: int, action: str = "published") -> Inl
         ])
 
 def back_to_previous():
-    """Клавиатура с кнопкой Назад для возврата к предыдущему шагу"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_previous_step")]
     ])
 
 def pagination_keyboard(current_page: int, total_pages: int, list_type: str, back_callback: str = "blacklist"):
-    """Создает клавиатуру для пагинации с кнопками навигации и возврата"""
     keyboard = []
     
-    # Кнопки навигации
     nav_buttons = []
     if current_page > 1:
         nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"{list_type}_page_{current_page - 1}"))
@@ -919,16 +856,13 @@ def pagination_keyboard(current_page: int, total_pages: int, list_type: str, bac
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # Кнопка возврата
     keyboard.append([InlineKeyboardButton(text="⬅️ В меню", callback_data=back_callback)])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def pending_posts_keyboard(current_page: int, total_pages: int):
-    """Создает клавиатуру для постов на модерации с кнопками действий"""
     keyboard = []
     
-    # Кнопки навигации
     nav_buttons = []
     if current_page > 1:
         nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"pending_page_{current_page - 1}"))
@@ -938,19 +872,16 @@ def pending_posts_keyboard(current_page: int, total_pages: int):
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # Кнопки действий
     keyboard.append([
         InlineKeyboardButton(text="✅ Опубликовать пост", callback_data="admin_publish_post"),
         InlineKeyboardButton(text="❌ Отклонить пост", callback_data="admin_reject_post")
     ])
     
-    # Кнопка возврата
     keyboard.append([InlineKeyboardButton(text="⬅️ В админ-панель", callback_data="admin_panel")])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 def admin_post_confirm_keyboard(post_id: int, action: str):
-    """Клавиатура подтверждения для админских действий с постами"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Да", callback_data=f"admin_{action}_confirm_{post_id}"),
@@ -959,7 +890,6 @@ def admin_post_confirm_keyboard(post_id: int, action: str):
     ])
 
 def admin_reject_reason_confirm_keyboard(post_id: int):
-    """Клавиатура подтверждения причины отклонения"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Отправить", callback_data=f"admin_reject_send_{post_id}"),
@@ -970,11 +900,8 @@ def admin_reject_reason_confirm_keyboard(post_id: int):
 # ================== MIDDLEWARE ДЛЯ ПРОВЕРКИ ЧАТА И ТЕМЫ ==================
 class ChatValidationMiddleware:
     async def __call__(self, handler, event, data):
-        # Пропускаем все админские колбэки из личных сообщений
         if isinstance(event, CallbackQuery):
-            # Проверяем, что это личное сообщение и админ
             if event.message.chat.type == 'private' and event.from_user.id in ADMINS:
-                # Пропускаем все админские команды из личных сообщений
                 admin_commands = [
                     'blacklist', 'banned_users', 'pub_blacklist', 
                     'add_blacklist_keyword', 'remove_blacklist_keyword',
@@ -987,18 +914,13 @@ class ChatValidationMiddleware:
                     'admin_reject_post'
                 ]
                 
-                # Проверяем, является ли callback_data одной из админских команд
                 for cmd in admin_commands:
                     if event.data.startswith(cmd):
                         return await handler(event, data)
         
         if isinstance(event, Message):
-            # Проверяем, что сообщение не из групп модераторов/администраторов
-            # (пользовательские команды должны приходить только из личных сообщений)
             if event.chat.type in ['group', 'supergroup']:
-                # Если это группа модераторов или администраторов
                 if event.chat.id in [MODERATORS_CHAT_ID, ADMINS_CHAT_ID]:
-                    # Проверяем, что это правильная тема
                     if event.chat.id == MODERATORS_CHAT_ID and not is_valid_moderators_chat(event):
                         logger.warning(f"Сообщение из неправильной темы группы модераторов: {event.message_thread_id}")
                         return
@@ -1006,127 +928,108 @@ class ChatValidationMiddleware:
                         logger.warning(f"Сообщение из неправильной темы группы администраторов: {event.message_thread_id}")
                         return
                 else:
-                    # Игнорируем сообщения из других групп
                     return
         
         elif isinstance(event, CallbackQuery):
-            # Для колбэков из групп проверяем тему
             if event.message.chat.type in ['group', 'supergroup']:
-                # Если это группа модераторов
                 if event.message.chat.id == MODERATORS_CHAT_ID:
                     if not await validate_chat_for_moderation(event):
                         await event.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
                         return
-                # Если это группа администраторов
                 elif event.message.chat.id == ADMINS_CHAT_ID:
                     if not await validate_chat_for_admin_actions(event):
                         await event.answer("⚠️ Это действие доступно только в теме администраторов", show_alert=True)
                         return
                 else:
-                    # Игнорируем колбэки из других групп
                     await event.answer("⚠️ Это действие недоступно в этой группе", show_alert=True)
                     return
         
         return await handler(event, data)
 
-# ================== MIDDLEWARE ДЛЯ ПРОВЕРКИ ПОДПИСКИ ==================
+# ================== MIDDLEWARE ДЛЯ ПРОВЕРКИ ПОДПИСКИ (ИСПРАВЛЕННЫЙ) ==================
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
-        # Пропускаем все сообщения и колбэки от админов
-        if hasattr(event, 'from_user') and event.from_user.id in ADMINS:
-            return await handler(event, data)
+        # ===== СПИСОК ДЕЙСТВИЙ, КОТОРЫЕ ПРОПУСКАЮТ ПРОВЕРКУ =====
+        # Только эти действия доступны без подписки
+        allowed_without_subscription = [
+            'check_subscription',  # Кнопка проверки подписки
+        ]
         
-        # Пропускаем все админские колбэки из личных сообщений
-        if isinstance(event, CallbackQuery):
-            if event.message.chat.type == 'private' and event.from_user.id in ADMINS:
-                admin_commands = [
-                    'blacklist', 'banned_users', 'pub_blacklist', 
-                    'add_blacklist_keyword', 'remove_blacklist_keyword',
-                    'banned_page_', 'pubblack_page_', 'admin_stats', 
-                    'pending_posts', 'pending_page_', 'admin_panel',
-                    'broadcast', 'manage_subscriptions', 'list_subscriptions',
-                    'add_channel_subscription', 'add_group_subscription',
-                    'add_bot_subscription', 'remove_subscription', 
-                    'refresh_subscriptions', 'admin_publish_post', 
-                    'admin_reject_post'
-                ]
-                
-                for cmd in admin_commands:
-                    if event.data.startswith(cmd):
-                        return await handler(event, data)
-            
+        # Пропускаем сообщения из групп (для них своя проверка)
         if isinstance(event, Message):
-            # Пропускаем сообщения из групп (для них своя проверка в ChatValidationMiddleware)
             if event.chat.type in ['group', 'supergroup']:
                 return await handler(event, data)
-                
-            user_id = event.from_user.id
-            
-            # Пропускаем команду /start
-            if event.text and event.text == "/start":
-                return await handler(event, data)
-            
-            if await is_banned(user_id):
-                return
-            
-            # Проверяем статус подписки
-            is_subscribed = await get_user_subscription_status(user_id)
-            
-            if not is_subscribed:
-                is_subscribed_now, unsubscribed = await check_subscription(user_id)
-                
-                # Проверяем только каналы и группы
-                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
-                
-                if unsubscribed_required:
-                    text = (
-                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
-                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
-                    )
-                    
-                    await event.answer(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
-                    return
-                else:
-                    await update_user_subscription_status(user_id, True)
-                    return await handler(event, data)
         
-        elif isinstance(event, CallbackQuery):
-            # Пропускаем колбэки из групп (для них своя проверка в ChatValidationMiddleware)
+        # Пропускаем колбэки из групп
+        if isinstance(event, CallbackQuery):
             if event.message.chat.type in ['group', 'supergroup']:
                 return await handler(event, data)
-                
+        
+        # Получаем user_id
+        if hasattr(event, 'from_user'):
             user_id = event.from_user.id
-            
-            # Пропускаем кнопку проверки подписки
-            if event.data == "check_subscription":
-                return await handler(event, data)
-            
-            if await is_banned(user_id):
+        else:
+            return await handler(event, data)
+        
+        # Проверяем бан
+        if await is_banned(user_id):
+            if isinstance(event, CallbackQuery):
                 await event.answer("🚫 Вы заблокированы.", show_alert=True)
-                return
+            elif isinstance(event, Message):
+                await event.answer("🚫 Вы заблокированы.")
+            return
+        
+        # Пропускаем команду /start - она сама обработает подписку
+        if isinstance(event, Message) and event.text and event.text == "/start":
+            return await handler(event, data)
+        
+        # Проверяем, является ли действие разрешенным без подписки
+        is_allowed_action = False
+        if isinstance(event, CallbackQuery):
+            for action in allowed_without_subscription:
+                if event.data.startswith(action):
+                    is_allowed_action = True
+                    break
+        
+        # Если действие разрешено без подписки - пропускаем
+        if is_allowed_action:
+            return await handler(event, data)
+        
+        # Проверяем статус подписки
+        is_subscribed = await get_user_subscription_status(user_id)
+        
+        if not is_subscribed:
+            # Проверяем актуальную подписку
+            is_subscribed_now, unsubscribed = await check_subscription(user_id)
             
-            # Проверяем статус подписки
-            is_subscribed = await get_user_subscription_status(user_id)
+            # Проверяем только каналы и группы
+            unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
             
-            if not is_subscribed:
-                await event.answer("⚠️ Для использования бота необходимо подписаться.", show_alert=True)
+            if unsubscribed_required:
+                # Пользователь не подписан - блокируем действие
+                text = (
+                    f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
+                    f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «✅ Я подписался»:</i>\n\n"
+                    f"⚠️ <b>Важно:</b> После подписки обязательно нажмите кнопку проверки!"
+                )
                 
-                is_subscribed_now, unsubscribed = await check_subscription(user_id)
-                
-                # Проверяем только каналы и группы
-                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
-                
-                if unsubscribed_required:
-                    text = (
-                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
-                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
+                if isinstance(event, CallbackQuery):
+                    await event.answer("⚠️ Сначала подпишитесь на обязательные каналы!", show_alert=True)
+                    await event.message.edit_text(
+                        text,
+                        parse_mode='HTML',
+                        reply_markup=get_subscription_keyboard(unsubscribed_required)
                     )
-                    
-                    await event.message.edit_text(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
-                    return
-                else:
-                    await update_user_subscription_status(user_id, True)
-                    return await handler(event, data)
+                elif isinstance(event, Message):
+                    await event.answer(
+                        text,
+                        parse_mode='HTML',
+                        reply_markup=get_subscription_keyboard(unsubscribed_required)
+                    )
+                return
+            else:
+                # Пользователь подписан - обновляем статус
+                await update_user_subscription_status(user_id, True)
         
         return await handler(event, data)
 
@@ -1139,10 +1042,9 @@ dp.message.middleware(subscription_middleware)
 dp.callback_query.middleware(chat_validation_middleware)
 dp.callback_query.middleware(subscription_middleware)
 
-# ================== START с проверкой подписки ==================
+# ================== START ==================
 @dp.message(F.text == "/start")
 async def start(msg: Message):
-    # Проверяем, что это личное сообщение
     if msg.chat.type not in ['private']:
         return await msg.answer("⚠️ Бот работает только в личных сообщениях")
     
@@ -1160,18 +1062,24 @@ async def start(msg: Message):
     
     await register_user(msg.from_user)
     
+    # ВАЖНО: Всегда проверяем подписку при /start
     is_subscribed, unsubscribed = await check_subscription(msg.from_user.id)
+    
+    # Проверяем только каналы и группы
     unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
     
     if unsubscribed_required:
+        # Пользователь не подписан - показываем кнопки подписки
         await msg.answer(
-            f"<b>Для начала вам нужно подписаться</b>\n"
-            f"После этого нажмите на кнопку «Я подписался».\n",
+            f"<b>📢 Для использования бота необходимо подписаться:</b>\n\n"
+            f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «✅ Я подписался»:</i>\n\n"
+            f"⚠️ <b>Важно:</b> После подписки обязательно нажмите кнопку проверки!",
             parse_mode='HTML',
-            reply_markup=get_subscription_keyboard(unsubscribed)
+            reply_markup=get_subscription_keyboard(unsubscribed_required)
         )
         return
     
+    # Пользователь подписан
     await update_user_subscription_status(msg.from_user.id, True)
     
     await msg.answer(
@@ -1187,7 +1095,6 @@ async def start(msg: Message):
 # ================== ПРОВЕРКА ПОДПИСКИ ПО КНОПКЕ ==================
 @dp.callback_query(F.data == "check_subscription")
 async def check_subscription_callback(cb: CallbackQuery):
-    # Проверяем, что это личное сообщение
     if cb.message.chat.type not in ['private']:
         return await cb.answer("⚠️ Действие доступно только в личных сообщениях", show_alert=True)
     
@@ -1200,13 +1107,15 @@ async def check_subscription_callback(cb: CallbackQuery):
     
     if unsubscribed_required:
         await cb.message.edit_text(
-            f"<b>Вы еще не подписались 😡</b>\n"
-            f"После подписки нажмите кнопку «Я подписался» еще раз",
+            f"<b>❌ Вы еще не подписались!</b>\n\n"
+            f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «✅ Я подписался» еще раз:</i>\n\n"
+            f"⚠️ <b>Важно:</b> После подписки обязательно нажмите кнопку проверки!",
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed_required)
         )
         return
     
+    # Пользователь подписан
     await update_user_subscription_status(cb.from_user.id, True)
     
     await cb.message.edit_text(
@@ -1289,7 +1198,6 @@ async def add_channel_subscription(cb: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "add_group_subscription")
 async def add_group_subscription(cb: CallbackQuery, state: FSMContext):
-    """Добавление обязательной группы"""
     if cb.from_user.id not in ADMINS:
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
@@ -1408,7 +1316,6 @@ async def process_subscription_add(msg: Message, state: FSMContext):
             if sub["type"] == "group" and (str(sub["id"]) == str(group_id) or sub["username"] == username):
                 return await msg.answer(f"❌ Группа уже есть в списке.")
         
-        # Проверяем, может ли бот проверять подписку в этой группе
         try:
             bot_member = await bot.get_chat_member(chat_id=group_id, user_id=bot.id)
             if bot_member.status not in ["administrator", "creator"]:
@@ -1695,7 +1602,6 @@ async def get_text_after_photo(msg: Message, state: FSMContext):
         reply_markup=menu_btn()
     )
     
-    # Отправляем на модерацию
     await send_to_moderation(post_id)
     await log("new_post", f"photo post #{post_id} from user {msg.from_user.id}")
 
@@ -1756,17 +1662,14 @@ async def get_text_only(msg: Message, state: FSMContext):
         reply_markup=menu_btn()
     )
     
-    # Отправляем на модерацию
     await send_to_moderation(post_id)
     await log("new_post", f"text post #{post_id} from user {msg.from_user.id}")
 
 # ================== ОБРАБОТЧИК КНОПКИ "НАЗАД" ==================
 @dp.callback_query(F.data == "back_to_previous_step")
 async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
-    """Обработчик кнопки Назад в состояниях ввода"""
     await state.clear()
     
-    # Возвращаем пользователя к выбору типа поста
     if await is_banned(cb.from_user.id):
         return await cb.answer("🚫 Вы заблокированы.", show_alert=True)
     if await posts_today(cb.from_user.id) >= 5:
@@ -1789,11 +1692,9 @@ async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
 
 # ================== ОТПРАВКА НА МОДЕРАЦИЮ ==================
 async def send_to_moderation(post_id: int):
-    """Отправляет пост на модерацию в группу модераторов"""
     try:
         logger.info(f"Отправляю пост #{post_id} на модерацию...")
         
-        # Получаем данные поста
         async with aiosqlite.connect(DB_NAME) as db:
             cur = await db.execute(
                 "SELECT text, photo FROM posts WHERE id=?",
@@ -1807,10 +1708,8 @@ async def send_to_moderation(post_id: int):
 
         text, photo = row
         
-        # Форматируем текст для модерации
         moderation_text = f"📨 <b>Новый пост #{post_id} на модерации</b>\n\n{text}"
         
-        # Отправляем в группу модераторов с указанием темы
         try:
             if photo:
                 logger.info(f"Отправляю фото-пост #{post_id} модераторам в тему {MODERATORS_TOPIC_ID}")
@@ -1834,12 +1733,10 @@ async def send_to_moderation(post_id: int):
             
             logger.info(f"✅ Пост #{post_id} отправлен модераторам в чат {MODERATORS_CHAT_ID}, тема {MODERATORS_TOPIC_ID}")
             
-            # Сохраняем ID сообщения для модераторов
             await update_post_message_ids(post_id, moderators_message_id=sent_msg.message_id)
                 
         except Exception as e:
             logger.error(f"Ошибка отправки поста #{post_id} модераторам: {e}")
-            # Пробуем отправить без указания темы
             try:
                 if photo:
                     sent_msg = await bot.send_photo(
@@ -1861,14 +1758,12 @@ async def send_to_moderation(post_id: int):
             except Exception as e2:
                 logger.error(f"Критическая ошибка отправки поста #{post_id} модераторам: {e2}")
         
-        # Отправляем уведомление администраторам
         await send_to_admins(post_id)
             
     except Exception as e:
         logger.error(f"Общая ошибка при отправке поста #{post_id} на модерацию: {e}")
 
 async def send_to_admins(post_id: int):
-    """Отправляет пост администраторам с информацией об авторе"""
     try:
         logger.info(f"Отправляю пост #{post_id} администраторам...")
         
@@ -1893,7 +1788,6 @@ async def send_to_admins(post_id: int):
         except:
             formatted_time = time
 
-        # Формируем текст для администраторов
         admin_text = (
             f"📨 <b>Новый пост #{post_id} на модерации</b>\n\n"
             f"📄 <b>Текст:</b>\n{text}\n\n"
@@ -1902,7 +1796,6 @@ async def send_to_admins(post_id: int):
             f"📅 <b>Время отправки:</b> {formatted_time}"
         )
         
-        # Отправляем администраторам с указанием темы
         try:
             if photo:
                 sent_msg = await bot.send_photo(
@@ -1920,14 +1813,12 @@ async def send_to_admins(post_id: int):
                     parse_mode='HTML'
                 )
             
-            # Сохраняем ID сообщения для администраторов
             await update_post_message_ids(post_id, admins_message_id=sent_msg.message_id)
             
             logger.info(f"✅ Пост #{post_id} отправлен администраторам в чат {ADMINS_CHAT_ID}, тема {ADMINS_TOPIC_ID}")
             
         except Exception as e:
             logger.error(f"Ошибка отправки поста #{post_id} администраторам: {e}")
-            # Пробуем отправить без указания темы
             try:
                 if photo:
                     sent_msg = await bot.send_photo(
@@ -1953,7 +1844,6 @@ async def send_to_admins(post_id: int):
 # ================== КТО ОПУБЛИКОВАЛ/ОТКЛОНИЛ ==================
 @dp.callback_query(F.data.startswith("who_pub_"))
 async def who_published(cb: CallbackQuery):
-    """Показывает информацию о том, кто опубликовал пост"""
     try:
         post_id = int(cb.data.split("_")[2])
     except (ValueError, IndexError):
@@ -1980,7 +1870,6 @@ async def who_published(cb: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("who_rej_"))
 async def who_rejected(cb: CallbackQuery):
-    """Показывает информацию о том, кто отклонил пост и причину"""
     try:
         post_id = int(cb.data.split("_")[2])
     except (ValueError, IndexError):
@@ -2009,8 +1898,6 @@ async def who_rejected(cb: CallbackQuery):
 # ================== ПУБЛИКАЦИЯ ==================
 @dp.callback_query(F.data.startswith("pub_"))
 async def confirm_pub(cb: CallbackQuery):
-    """Проверяем статус поста перед публикацией"""
-    # Проверяем, что это правильный чат для модерации
     if not await validate_chat_for_moderation(cb):
         return await cb.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
     
@@ -2019,7 +1906,6 @@ async def confirm_pub(cb: CallbackQuery):
     except ValueError:
         return await cb.answer("Неверный ID поста", show_alert=True)
     
-    # Проверяем текущий статус поста
     current_status = await get_post_status(pid)
     if current_status == "published":
         await cb.answer("❌ Этот пост уже опубликован!", show_alert=True)
@@ -2028,16 +1914,14 @@ async def confirm_pub(cb: CallbackQuery):
         await cb.answer("❌ Этот пост уже отклонен!", show_alert=True)
         return
     
-    # Создаем клавиатуру подтверждения
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Да, опубликовать", callback_data=f"yes_{pid}")],
         [InlineKeyboardButton(text="❌ Нет, отменить", callback_data=f"no_{pid}")]
     ])
     
-    # Отправляем сообщение в ТЕМУ группы модераторов
     await bot.send_message(
         chat_id=MODERATORS_CHAT_ID,
-        message_thread_id=MODERATORS_TOPIC_ID,  # Указываем тему
+        message_thread_id=MODERATORS_TOPIC_ID,
         text="Подтвердить публикацию?",
         reply_markup=kb
     )
@@ -2045,8 +1929,6 @@ async def confirm_pub(cb: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("yes_"))
 async def publish(cb: CallbackQuery):
-    """Публикация поста"""
-    # Проверяем, что это правильный чат для модерации
     if not await validate_chat_for_moderation(cb):
         return await cb.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
     
@@ -2055,7 +1937,6 @@ async def publish(cb: CallbackQuery):
     except ValueError:
         return await cb.answer("Неверный ID поста", show_alert=True)
 
-    # Проверяем статус поста перед публикацией
     current_status = await get_post_status(pid)
     if current_status in ["published", "rejected"]:
         await cb.answer(f"❌ Этот пост уже {'опубликован' if current_status == 'published' else 'отклонен'}!", show_alert=True)
@@ -2073,7 +1954,6 @@ async def publish(cb: CallbackQuery):
 
         text, photo, user_id = row
         
-        # Публикуем в основном канале
         try:
             if photo:
                 await bot.send_photo(MAIN_CHANNEL_ID, photo, caption=text)
@@ -2083,17 +1963,14 @@ async def publish(cb: CallbackQuery):
             logger.error(f"Ошибка публикации поста #{pid} в канал: {e}")
             return await cb.answer(f"Ошибка публикации: {e}", show_alert=True)
 
-        # Обновляем статус поста
         await db.execute(
             "UPDATE posts SET status='published', moderator_id=?, moderation_time=? WHERE id=?",
             (cb.from_user.id, str(datetime.now()), pid)
         )
         await db.commit()
 
-        # Обновляем сообщение в группе администраторов
         await update_admin_message_status(pid, "published")
 
-        # Уведомляем автора поста
         try:
             await bot.send_message(
                 user_id,
@@ -2104,32 +1981,27 @@ async def publish(cb: CallbackQuery):
 
     await log("publish", str(pid))
     
-    # Отправляем подтверждение в ТЕМУ группы модераторов
     await bot.send_message(
         chat_id=MODERATORS_CHAT_ID,
-        message_thread_id=MODERATORS_TOPIC_ID,  # Указываем тему
+        message_thread_id=MODERATORS_TOPIC_ID,
         text="✅ Пост опубликован"
     )
     await cb.answer()
 
 @dp.callback_query(F.data.startswith("no_"))
 async def cancel_pub(cb: CallbackQuery):
-    """Отмена публикации"""
-    # Проверяем, что это правильный чат для модерации
     if not await validate_chat_for_moderation(cb):
         return await cb.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
     
-    # Отправляем сообщение в ТЕМУ группы модераторов
     await bot.send_message(
         chat_id=MODERATORS_CHAT_ID,
-        message_thread_id=MODERATORS_TOPIC_ID,  # Указываем тему
+        message_thread_id=MODERATORS_TOPIC_ID,
         text="❌ Действие отменено."
     )
     await cb.answer()
 
 # ================== ОТКЛОНЕНИЕ С ТАЙМАУТОМ ==================
 async def reset_reject_state(post_id: int, message_id: int, chat_id: int, text: str, photo: str = None):
-    """Сбрасывает состояние отказа и возвращает к исходному сообщению"""
     try:
         if photo:
             await bot.edit_message_caption(
@@ -2149,7 +2021,6 @@ async def reset_reject_state(post_id: int, message_id: int, chat_id: int, text: 
             )
         logger.info(f"✅ Состояние отказа для поста #{post_id} сброшено (таймаут)")
     except TelegramBadRequest as e:
-        # Если сообщение не изменилось - это нормально, просто пропускаем
         if "message is not modified" in str(e):
             logger.debug(f"Сообщение #{post_id} уже имеет нужное состояние")
         else:
@@ -2159,26 +2030,19 @@ async def reset_reject_state(post_id: int, message_id: int, chat_id: int, text: 
 
 async def reject_timeout_handler(state: FSMContext, post_id: int, message_id: int, 
                                 chat_id: int, original_text: str, photo: str = None):
-    """Обработчик таймаута для состояния отказа"""
-    await asyncio.sleep(60)  # Ждем 1 минуту
+    await asyncio.sleep(60)
     
     data = await state.get_data()
     current_post_id = data.get("post_id")
     
-    # Проверяем, что это все еще тот же пост и состояние не изменилось
     if current_post_id == post_id:
         current_state = await state.get_state()
         if current_state == RejectState.wait_reason.state:
-            # Сбрасываем состояние
             await state.clear()
-            
-            # Возвращаем исходное сообщение
             await reset_reject_state(post_id, message_id, chat_id, original_text, photo)
 
 @dp.callback_query(F.data.startswith("rej_"))
 async def reject(cb: CallbackQuery, state: FSMContext):
-    """Отклонение поста"""
-    # Проверяем, что это правильный чат для модерации
     if not await validate_chat_for_moderation(cb):
         return await cb.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
     
@@ -2187,7 +2051,6 @@ async def reject(cb: CallbackQuery, state: FSMContext):
     except ValueError:
         return await cb.answer("Неверный ID поста", show_alert=True)
     
-    # Проверяем текущий статус поста
     current_status = await get_post_status(pid)
     if current_status == "published":
         await cb.answer("❌ Этот пост уже опубликован!", show_alert=True)
@@ -2196,11 +2059,9 @@ async def reject(cb: CallbackQuery, state: FSMContext):
         await cb.answer("❌ Этот пост уже отклонен!", show_alert=True)
         return
     
-    # Сохраняем информацию о сообщении для возможного восстановления
     message_id = cb.message.message_id
     chat_id = cb.message.chat.id
     
-    # Получаем текст и фото поста
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT text, photo FROM posts WHERE id=?",
@@ -2227,21 +2088,18 @@ async def reject(cb: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel_rej_{pid}")]
     ])
 
-    # Отправляем сообщение в ТЕМУ группы модераторов
     await bot.send_message(
         chat_id=MODERATORS_CHAT_ID,
-        message_thread_id=MODERATORS_TOPIC_ID,  # Указываем тему
+        message_thread_id=MODERATORS_TOPIC_ID,
         text="Опишите причину отказа (у вас 1 минута):",
         reply_markup=kb
     )
     await cb.answer()
     
-    # Запускаем таймер для сброса состояния через 1 минуту
     asyncio.create_task(reject_timeout_handler(state, pid, message_id, chat_id, original_text, photo))
 
 @dp.callback_query(F.data.startswith("cancel_rej_"))
 async def cancel_rej(cb: CallbackQuery, state: FSMContext):
-    """Отмена отказа"""
     try:
         pid = int(cb.data.split("_")[2])
     except ValueError:
@@ -2260,7 +2118,6 @@ async def cancel_rej(cb: CallbackQuery, state: FSMContext):
     
     await state.clear()
     
-    # Возвращаем исходное сообщение
     await reset_reject_state(pid, message_id, chat_id, original_text, photo)
     
     await cb.answer("❌ Отмена отклонения")
@@ -2278,11 +2135,9 @@ async def reject_reason(msg: Message, state: FSMContext):
     photo = data.get("photo")
     timestamp = data.get("timestamp")
     
-    # Проверяем, не прошло ли больше 1 минуты
-    if timestamp and (datetime.now() - timestamp).total_seconds() > 70:  # Даем небольшую фору
+    if timestamp and (datetime.now() - timestamp).total_seconds() > 70:
         await state.clear()
         await reset_reject_state(pid, message_id, chat_id, original_text, photo)
-        # Отправляем сообщение в ТЕМУ группы модераторов
         return await bot.send_message(
             chat_id=MODERATORS_CHAT_ID,
             message_thread_id=MODERATORS_TOPIC_ID,
@@ -2308,10 +2163,8 @@ async def reject_reason(msg: Message, state: FSMContext):
         )
         await db.commit()
 
-        # Обновляем сообщение в группе администраторов
         await update_admin_message_status(pid, "rejected", msg.text)
 
-        # Обновляем исходное сообщение (отключаем кнопки)
         try:
             if photo:
                 await bot.edit_message_caption(
@@ -2330,13 +2183,11 @@ async def reject_reason(msg: Message, state: FSMContext):
                     reply_markup=disabled_moderation_keyboard(pid, "rejected")
                 )
         except TelegramBadRequest as e:
-            # Если сообщение не изменилось - это нормально, просто пропускаем
             if "message is not modified" not in str(e):
                 logger.error(f"Ошибка при обновлении сообщения: {e}")
         except Exception as e:
             logger.error(f"Ошибка при обновлении сообщения: {e}")
 
-    # Уведомляем автора
     try:
         await bot.send_message(
             user_id,
@@ -2350,7 +2201,6 @@ async def reject_reason(msg: Message, state: FSMContext):
 
     await log("reject", str(pid))
     
-    # Отправляем подтверждение в ТЕМУ группы модераторов
     await bot.send_message(
         chat_id=MODERATORS_CHAT_ID,
         message_thread_id=MODERATORS_TOPIC_ID,
@@ -2360,10 +2210,9 @@ async def reject_reason(msg: Message, state: FSMContext):
 # ================== ОБРАБОТЧИК ДЛЯ ОТКЛЮЧЕННЫХ КНОПОК ==================
 @dp.callback_query(F.data == "disabled")
 async def disabled_button_handler(cb: CallbackQuery):
-    """Обработчик для отключенных кнопок"""
     await cb.answer("❌ Это действие недоступно - пост уже был обработан модератором", show_alert=True)
 
-# ================== RULES с кнопкой Юр.увед. ==================
+# ================== RULES ==================
 @dp.callback_query(F.data == "rules")
 async def rules(cb: CallbackQuery):
     if await is_banned(cb.from_user.id):
@@ -2422,6 +2271,7 @@ async def profile(cb: CallbackQuery):
         f"• Постов за день: {today}/5\n"
         f"• Постов за неделю: {week}\n\n"
         f"📅 <b>Дата регистрации:</b> {reg}\n"
+        f"🔔 <b>Статус подписки:</b> {subscription_status}\n"
         f"🕵 <b>Разработчик: @theaugustine</b>"
     )
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=menu_btn())
@@ -2473,7 +2323,6 @@ async def ads(cb: CallbackQuery):
 # ================== COMMANDS FOR ADMINS ==================
 @dp.message(F.text.startswith("/ban"))
 async def ban_command(msg: Message):
-    """Команда для блокировки пользователя: /ban <user_id> <причина>"""
     if msg.from_user.id not in ADMINS:
         return
     
@@ -2525,7 +2374,6 @@ async def ban_command(msg: Message):
 
 @dp.message(F.text.startswith("/unban"))
 async def unban_command(msg: Message):
-    """Команда для разблокировки пользователя: /unban <user_id>"""
     if msg.from_user.id not in ADMINS:
         return
     
@@ -2564,7 +2412,6 @@ async def unban_command(msg: Message):
 
 @dp.message(F.text.startswith("/blacklist_add"))
 async def blacklist_add_command(msg: Message):
-    """Команда для добавления слова в черный список публикаций"""
     if msg.from_user.id not in ADMINS:
         return
     
@@ -2597,7 +2444,6 @@ async def blacklist_add_command(msg: Message):
 
 @dp.message(F.text.startswith("/blacklist_remove"))
 async def blacklist_remove_command(msg: Message):
-    """Команда для удаления слова из черного списка публикаций"""
     if msg.from_user.id not in ADMINS:
         return
     
@@ -2624,7 +2470,6 @@ async def blacklist_remove_command(msg: Message):
 
 @dp.message(F.text.startswith("/blacklist"))
 async def blacklist_show_command(msg: Message):
-    """Показать черный список публикаций"""
     if msg.from_user.id not in ADMINS:
         return
     
@@ -2660,11 +2505,10 @@ async def admin_panel_command(msg: Message):
     users_count = await get_users_count()
     banned_users, _ = await get_banned_users(page=1, per_page=1)
     banned_count = len(banned_users) if banned_users else 0
-    blacklist, _ = await get_publication_blacklist(page=1, per_page=100)  # Получаем все слова
+    blacklist, _ = await get_publication_blacklist(page=1, per_page=100)
     blacklist_count = len(blacklist) if blacklist else 0
     subscription_count = len(REQUIRED_SUBSCRIPTIONS)
     
-    # Формируем текст с черным списком
     text = (
         f"🛠 <b>Админ-панель</b>\n\n"
         f"📊 <b>Статистика:</b>\n"
@@ -2672,32 +2516,8 @@ async def admin_panel_command(msg: Message):
         f"🚫 Заблокировано: <b>{banned_count}</b>\n"
         f"📝 Слов в ЧС публикаций: <b>{blacklist_count}</b>\n"
         f"📢 Обязательных подписок: <b>{subscription_count}</b>\n\n"
+        f"<i>Выберите действие:</i>"
     )
-    
-    # Добавляем черный список публикаций, если он не пуст
-    if blacklist_count > 0:
-        text += "📋 <b>Черный список публикаций:</b>\n"
-        
-        # Показываем первые 10 слов, чтобы не перегружать сообщение
-        for i, (keyword, keyword_type, added_by, added_time) in enumerate(blacklist[:10], 1):
-            try:
-                # Пытаемся получить username админа
-                async with aiosqlite.connect(DB_NAME) as db:
-                    cur = await db.execute("SELECT username FROM users WHERE user_id=?", (added_by,))
-                    admin_row = await cur.fetchone()
-                    admin_name = f"@{admin_row[0]}" if admin_row and admin_row[0] else f"id{added_by}"
-            except:
-                admin_name = f"id{added_by}"
-            
-            type_emoji = "🔤" if keyword_type == "text" else "👤"
-            text += f"{i}. {type_emoji} <code>{keyword}</code> (добавил: {admin_name})\n"
-        
-        if blacklist_count > 10:
-            text += f"\n<i>... и еще {blacklist_count - 10} слов в списке</i>\n"
-        
-        text += "\n"
-    
-    text += "<i>Выберите действие:</i>"
     
     await msg.answer(text, parse_mode='HTML', reply_markup=admin_menu())
 
@@ -2745,7 +2565,7 @@ async def blacklist_panel(cb: CallbackQuery):
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=blacklist_menu())
 
-# ================== ЗАБЛОКИРОВАННЫЕ ПОЛЬЗОВАТЕЛИ С ПАГИНАЦИЕЙ ==================
+# ================== ЗАБЛОКИРОВАННЫЕ ПОЛЬЗОВАТЕЛИ ==================
 @dp.callback_query(F.data == "banned_users")
 async def show_banned_users(cb: CallbackQuery):
     if cb.from_user.id not in ADMINS:
@@ -2754,9 +2574,8 @@ async def show_banned_users(cb: CallbackQuery):
     await show_banned_users_page(cb, page=1)
 
 async def show_banned_users_page(cb: CallbackQuery, page: int):
-    """Показать страницу заблокированных пользователей"""
     banned_users, total = await get_banned_users(page=page, per_page=5)
-    total_pages = (total + 4) // 5  # Округление вверх
+    total_pages = (total + 4) // 5
     
     if not banned_users:
         text = "👤 <b>Нет заблокированных пользователей</b>"
@@ -2801,7 +2620,7 @@ async def banned_page_handler(cb: CallbackQuery):
     except (ValueError, IndexError):
         await cb.answer("❌ Ошибка при загрузке страницы", show_alert=True)
 
-# ================== ЧЕРНЫЙ СПИСОК ПУБЛИКАЦИЙ С ПАГИНАЦИЕЙ ==================
+# ================== ЧЕРНЫЙ СПИСОК ПУБЛИКАЦИЙ ==================
 @dp.callback_query(F.data == "pub_blacklist")
 async def show_pub_blacklist(cb: CallbackQuery):
     if cb.from_user.id not in ADMINS:
@@ -2810,9 +2629,8 @@ async def show_pub_blacklist(cb: CallbackQuery):
     await show_pub_blacklist_page(cb, page=1)
 
 async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
-    """Показать страницу черного списка публикаций"""
     blacklist, total = await get_publication_blacklist(page=page, per_page=5)
-    total_pages = (total + 4) // 5  # Округление вверх
+    total_pages = (total + 4) // 5
     
     if not blacklist:
         text = "📝 <b>Черный список публикаций пуст</b>"
@@ -2824,7 +2642,6 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
     start_idx = (page - 1) * 5 + 1
     for i, (keyword, keyword_type, added_by, added_time) in enumerate(blacklist, start_idx):
         try:
-            # Пытаемся преобразовать время
             if added_time:
                 time_str = datetime.fromisoformat(added_time).strftime('%d.%m.%Y %H:%M')
             else:
@@ -2836,7 +2653,6 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
         
         text_lines.append(f"<b>{i}. {type_emoji} <code>{keyword}</code></b>")
         
-        # Пытаемся получить username админа
         admin_info = ""
         if added_by:
             try:
@@ -2906,7 +2722,6 @@ async def process_blacklist_keyword(msg: Message, state: FSMContext):
         await msg.answer("❌ Ключевое слово должно содержать минимум 2 символа.")
         return
     
-    # Определяем тип ключевого слова
     keyword_type = "text"
     if keyword.startswith("@"):
         keyword_type = "username"
@@ -3061,7 +2876,7 @@ async def show_admin_logs(cb: CallbackQuery):
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu())
 
-# ================== ПОСТЫ НА МОДЕРАЦИИ С ПАГИНАЦИЕЙ ==================
+# ================== ПОСТЫ НА МОДЕРАЦИИ ==================
 @dp.callback_query(F.data == "pending_posts")
 async def show_pending_posts(cb: CallbackQuery):
     if cb.from_user.id not in ADMINS:
@@ -3070,9 +2885,8 @@ async def show_pending_posts(cb: CallbackQuery):
     await show_pending_posts_page(cb, page=1)
 
 async def show_pending_posts_page(cb: CallbackQuery, page: int):
-    """Показать страницу постов на модерации"""
     posts, total = await get_pending_posts(page=page, per_page=5)
-    total_pages = (total + 4) // 5  # Округление вверх
+    total_pages = (total + 4) // 5
     
     if not posts:
         text = "📭 <b>Постов на модерации нет</b>"
@@ -3144,7 +2958,6 @@ async def process_admin_publish_post_id(msg: Message, state: FSMContext):
     except ValueError:
         return await msg.answer("❌ Пожалуйста, введите число.")
     
-    # Получаем пост
     post = await get_post_by_id(post_id)
     
     if not post:
@@ -3164,17 +2977,15 @@ async def process_admin_publish_post_id(msg: Message, state: FSMContext):
             ])
         )
     
-    # Сохраняем данные в состояние
     await state.update_data(post_id=post_id, post_text=post[2], post_photo=post[3])
     
-    # Показываем пост для подтверждения
     preview_text = (
         f"📨 <b>Пост #{post_id}</b>\n\n"
         f"{post[2]}\n\n"
         f"Опубликовать этот пост?"
     )
     
-    if post[3]:  # есть фото
+    if post[3]:
         await msg.answer_photo(
             photo=post[3],
             caption=preview_text,
@@ -3198,10 +3009,8 @@ async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
     except (ValueError, IndexError):
         return await cb.answer("❌ Неверный ID поста", show_alert=True)
     
-    # Получаем данные из состояния
     data = await state.get_data()
     
-    # Получаем пост из базы для проверки статуса
     post = await get_post_by_id(post_id)
     
     if not post or post[5] != "moderation":
@@ -3213,11 +3022,9 @@ async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
             ])
         )
     
-    # Публикуем пост
     async with aiosqlite.connect(DB_NAME) as db:
         text, photo, user_id = post[2], post[3], post[1]
         
-        # Публикуем в основном канале
         try:
             if photo:
                 await bot.send_photo(MAIN_CHANNEL_ID, photo, caption=text)
@@ -3227,17 +3034,14 @@ async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
             logger.error(f"Ошибка публикации поста #{post_id} в канал: {e}")
             return await cb.answer(f"Ошибка публикации: {e}", show_alert=True)
         
-        # Обновляем статус поста
         await db.execute(
             "UPDATE posts SET status='published', moderator_id=?, moderation_time=? WHERE id=?",
             (cb.from_user.id, str(datetime.now()), post_id)
         )
         await db.commit()
         
-        # Обновляем сообщение в группе администраторов
         await update_admin_message_status(post_id, "published")
         
-        # Уведомляем автора
         try:
             await bot.send_message(
                 user_id,
@@ -3291,7 +3095,6 @@ async def process_admin_reject_post_id(msg: Message, state: FSMContext):
     except ValueError:
         return await msg.answer("❌ Пожалуйста, введите число.")
     
-    # Получаем пост
     post = await get_post_by_id(post_id)
     
     if not post:
@@ -3311,17 +3114,15 @@ async def process_admin_reject_post_id(msg: Message, state: FSMContext):
             ])
         )
     
-    # Сохраняем данные в состояние
     await state.update_data(post_id=post_id, post_text=post[2], post_photo=post[3], user_id=post[1])
     
-    # Показываем пост для подтверждения
     preview_text = (
         f"📨 <b>Пост #{post_id}</b>\n\n"
         f"{post[2]}\n\n"
         f"Отклонить этот пост?"
     )
     
-    if post[3]:  # есть фото
+    if post[3]:
         await msg.answer_photo(
             photo=post[3],
             caption=preview_text,
@@ -3345,7 +3146,6 @@ async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
     except (ValueError, IndexError):
         return await cb.answer("❌ Неверный ID поста", show_alert=True)
     
-    # Получаем пост из базы для проверки статуса
     post = await get_post_by_id(post_id)
     
     if not post or post[5] != "moderation":
@@ -3357,7 +3157,6 @@ async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
             ])
         )
     
-    # Переходим к запросу причины
     await state.set_state(AdminPostState.wait_reject_reason)
     await state.update_data(post_id=post_id)
     
@@ -3381,7 +3180,6 @@ async def process_reject_reason(msg: Message, state: FSMContext):
     if not post_id:
         return await msg.answer("❌ Ошибка: не найден ID поста.")
     
-    # Получаем пост
     post = await get_post_by_id(post_id)
     
     if not post or post[5] != "moderation":
@@ -3395,10 +3193,8 @@ async def process_reject_reason(msg: Message, state: FSMContext):
     
     reason = msg.text.strip()
     
-    # Сохраняем причину
     await state.update_data(reject_reason=reason)
     
-    # Показываем предпросмотр
     preview_text = (
         f"📨 <b>Пост #{post_id}</b>\n\n"
         f"{post[2]}\n\n"
@@ -3406,7 +3202,7 @@ async def process_reject_reason(msg: Message, state: FSMContext):
         f"Отправить это пользователю?"
     )
     
-    if post[3]:  # есть фото
+    if post[3]:
         await msg.answer_photo(
             photo=post[3],
             caption=preview_text,
@@ -3435,7 +3231,6 @@ async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     reason = data.get("reject_reason")
     
-    # Получаем пост из базы
     post = await get_post_by_id(post_id)
     
     if not post or post[5] != "moderation":
@@ -3447,7 +3242,6 @@ async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
             ])
         )
     
-    # Обновляем статус поста
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "UPDATE posts SET status='rejected', moderator_id=?, moderation_time=?, reject_reason=? WHERE id=?",
@@ -3455,10 +3249,8 @@ async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
         )
         await db.commit()
         
-        # Обновляем сообщение в группе администраторов
         await update_admin_message_status(post_id, "rejected", reason)
     
-    # Уведомляем автора
     try:
         await bot.send_message(
             post[1],
@@ -3490,14 +3282,10 @@ async def admin_reject_cancel(cb: CallbackQuery, state: FSMContext):
     await show_pending_posts_page(cb, page=1)
 
 # ================== BROADCAST FUNCTIONALITY ==================
-# Функция для преобразования сообщения в HTML с сохранением всех entities
 def message_to_html(text: str, entities: list = None) -> str:
-    """Преобразует текст и entities в HTML с сохранением всех форматирований"""
     if not entities:
         return text
     
-    # Сортируем entities по длине (от самых длинных к коротким)
-    # Это нужно чтобы вложенное форматирование работало правильно
     sorted_entities = sorted(entities, key=lambda e: e.length, reverse=True)
     
     html_text = text
@@ -3507,7 +3295,6 @@ def message_to_html(text: str, entities: list = None) -> str:
         start = entity.offset
         end = entity.offset + entity.length
         
-        # Корректируем позиции с учетом уже вставленных тегов
         start += offset_shift
         end += offset_shift
         
@@ -3534,8 +3321,6 @@ def message_to_html(text: str, entities: list = None) -> str:
         elif entity.type == "spoiler":
             replacement = f"<span class='tg-spoiler'>{original}</span>"
         else:
-            # Для других типов (включая custom_emoji) оставляем как есть
-            # Telegram сам обработает премиум эмодзи
             continue
         
         html_text = html_text[:start] + replacement + html_text[end:]
@@ -3588,14 +3373,11 @@ async def process_broadcast_text(msg: Message, state: FSMContext):
     if not msg.text and not msg.caption:
         return await msg.answer("❌ Сообщение не содержит текста.")
     
-    # Получаем текст и entities
     text = msg.text or msg.caption
     entities = msg.entities or msg.caption_entities
     
-    # Преобразуем в HTML
     html_text = message_to_html(text, entities)
     
-    # Сохраняем в состояние
     await state.update_data(
         broadcast_text=text,
         broadcast_html=html_text,
@@ -3603,7 +3385,6 @@ async def process_broadcast_text(msg: Message, state: FSMContext):
         broadcast_type="text"
     )
     
-    # Показываем предпросмотр
     await show_broadcast_preview(msg, state)
 
 @dp.callback_query(F.data == "broadcast_photo")
@@ -3632,13 +3413,11 @@ async def process_broadcast_photo(msg: Message, state: FSMContext):
     if not msg.photo:
         return await msg.answer("❌ Пожалуйста, отправьте фото.")
     
-    # Сохраняем фото в состояние
     await state.update_data(
         broadcast_photo=msg.photo[-1].file_id,
         broadcast_type="photo"
     )
     
-    # Переходим к ожиданию текста для фото
     await state.set_state(BroadcastState.wait_broadcast_text_with_photo)
     await msg.answer(
         "📝 <b>Добавьте текст к фото</b>\n\n"
@@ -3659,25 +3438,20 @@ async def process_broadcast_text_with_photo(msg: Message, state: FSMContext):
     if not msg.text and not msg.caption:
         return await msg.answer("❌ Сообщение не содержит текста.")
     
-    # Получаем текст и entities
     text = msg.text or msg.caption
     entities = msg.entities or msg.caption_entities
     
-    # Преобразуем в HTML
     html_text = message_to_html(text, entities)
     
-    # Сохраняем в состояние
     await state.update_data(
         broadcast_text=text,
         broadcast_html=html_text,
         broadcast_entities=entities
     )
     
-    # Показываем предпросмотр
     await show_broadcast_preview(msg, state)
 
 async def show_broadcast_preview(msg: Message, state: FSMContext):
-    """Показывает предпросмотр рассылки и запрашивает подтверждение"""
     data = await state.get_data()
     broadcast_type = data.get("broadcast_type")
     broadcast_text = data.get("broadcast_text")
@@ -3693,41 +3467,34 @@ async def show_broadcast_preview(msg: Message, state: FSMContext):
         f"📝 <b>Сообщение будет выглядеть так:</b>\n\n"
     )
     
-    # Отправляем предпросмотр с оригинальным форматированием
     try:
         if broadcast_type == "photo" and broadcast_photo:
-            # Для фото используем caption
             await msg.answer_photo(
                 photo=broadcast_photo,
                 caption=preview_header + "\n" + broadcast_text,
                 parse_mode='HTML'
             )
         else:
-            # Для текста отправляем два сообщения: заголовок и само сообщение
             await msg.answer(
                 preview_header,
                 parse_mode='HTML'
             )
-            # Отправляем само сообщение с оригинальным форматированием
             await msg.answer(
                 broadcast_text,
-                entities=broadcast_entities  # Сохраняем все entities
+                entities=broadcast_entities
             )
     except Exception as e:
         logger.error(f"Ошибка при предпросмотре: {e}")
-        # Если не получилось с entities, пробуем с HTML
         try:
             await msg.answer(
                 preview_header + "\n" + broadcast_html,
                 parse_mode='HTML'
             )
         except:
-            # Если совсем не получается, отправляем как есть
             await msg.answer(
                 f"{preview_header}\n{broadcast_text}"
             )
     
-    # Отправляем клавиатуру подтверждения
     await msg.answer(
         "👇 <b>Подтвердите рассылку:</b>",
         parse_mode='HTML',
@@ -3752,7 +3519,6 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
         await state.clear()
         return await cb.message.edit_text("❌ Ошибка: текст рассылки не найден.")
     
-    # Получаем всех пользователей
     users = await get_all_users()
     total_users = len(users)
     
@@ -3760,10 +3526,8 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
         await state.clear()
         return await cb.message.edit_text("❌ Нет пользователей для рассылки.")
     
-    # Удаляем сообщение с клавиатурой подтверждения
     await cb.message.delete()
     
-    # Отправляем сообщение о начале рассылки
     status_msg = await cb.message.answer(
         f"📢 <b>Рассылка началась!</b>\n\n"
         f"👥 Всего пользователей: {total_users}\n"
@@ -3775,33 +3539,29 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
     
     await cb.answer()
     
-    # Запускаем рассылку
     success_count = 0
     error_count = 0
     
     for i, user_id in enumerate(users, 1):
         try:
             if broadcast_type == "photo" and broadcast_photo:
-                # Отправляем с фото, используя оригинальные entities для caption
                 await bot.send_photo(
                     chat_id=user_id,
                     photo=broadcast_photo,
                     caption=broadcast_text,
-                    caption_entities=broadcast_entities  # Сохраняем все форматирование
+                    caption_entities=broadcast_entities
                 )
             else:
-                # Отправляем текст с оригинальными entities
                 await bot.send_message(
                     chat_id=user_id,
                     text=broadcast_text,
-                    entities=broadcast_entities  # Сохраняем все форматирование
+                    entities=broadcast_entities
                 )
             success_count += 1
         except Exception as e:
             error_count += 1
             logger.error(f"Ошибка отправки рассылки пользователю {user_id}: {e}")
             
-            # Пробуем отправить с HTML если не получилось с entities
             try:
                 if broadcast_type == "photo" and broadcast_photo:
                     await bot.send_photo(
@@ -3819,7 +3579,6 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
                 success_count += 1
                 error_count -= 1
             except:
-                # Если и так не получилось, пробуем без форматирования
                 try:
                     import re
                     clean_text = re.sub(r'<[^>]+>', '', broadcast_html)
@@ -3840,7 +3599,6 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
                 except:
                     pass
         
-        # Обновляем статус каждые 10 сообщений
         if i % 10 == 0 or i == total_users:
             progress = int((i / total_users) * 100)
             try:
@@ -3855,10 +3613,8 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
             except:
                 pass
         
-        # Небольшая задержка чтобы не флудить
         await asyncio.sleep(0.05)
     
-    # Итоговый отчет
     await status_msg.edit_text(
         f"📢 <b>Рассылка завершена!</b>\n\n"
         f"👥 Всего пользователей: {total_users}\n"

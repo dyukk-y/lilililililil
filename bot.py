@@ -10,7 +10,7 @@ from aiogram.types import *
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 import aiosqlite
 
 # Import configuration
@@ -254,25 +254,51 @@ async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
                 # Преобразуем ID в целое число
                 chat_id = int(sub["id"])
                 
-                # Проверяем подписку
-                chat_member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-                if chat_member.status not in ["member", "administrator", "creator"]:
-                    unsubscribed.append(sub)
-            except ValueError:
-                # Если не получается преобразовать в число, пробуем как строку (username)
+                # Пытаемся получить информацию о пользователе в чате
                 try:
-                    chat_member = await bot.get_chat_member(chat_id=sub["id"], user_id=user_id)
-                    if chat_member.status not in ["member", "administrator", "creator"]:
+                    chat_member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+                    
+                    # Проверяем статус участника
+                    if chat_member.status in ["member", "administrator", "creator"]:
+                        logger.info(f"Пользователь {user_id} подписан на {sub['type']} {sub['name']}")
+                        continue  # Подписан, переходим к следующей подписке
+                    else:
+                        logger.info(f"Пользователь {user_id} НЕ подписан на {sub['type']} {sub['name']} (статус: {chat_member.status})")
                         unsubscribed.append(sub)
+                        
+                except TelegramForbiddenError:
+                    # Бот не может получить информацию о пользователе (не админ или нет прав)
+                    logger.error(f"Бот не имеет прав для проверки {sub['type']} {sub['name']} (ID: {chat_id}). Убедитесь, что бот администратор и имеет права на просмотр участников")
+                    # В этом случае считаем, что пользователь не подписан
+                    unsubscribed.append(sub)
+                    
                 except Exception as e:
                     logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
                     unsubscribed.append(sub)
-            except Exception as e:
-                logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
-                unsubscribed.append(sub)
+                    
+            except ValueError:
+                # Если ID не число, пробуем использовать как username
+                try:
+                    # Пробуем получить ID чата по username
+                    try:
+                        chat = await bot.get_chat(chat_id=sub["id"])
+                        actual_chat_id = chat.id
+                        
+                        chat_member = await bot.get_chat_member(chat_id=actual_chat_id, user_id=user_id)
+                        if chat_member.status in ["member", "administrator", "creator"]:
+                            continue
+                        else:
+                            unsubscribed.append(sub)
+                    except Exception as e:
+                        logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
+                        unsubscribed.append(sub)
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
+                    unsubscribed.append(sub)
+                    
         elif sub["type"] == "bot":
-            # Для ботов мы не можем проверить подписку
-            # Просто добавляем в список для отображения
+            # Для ботов не проверяем подписку, просто добавляем в список
             unsubscribed.append(sub)
     
     return len(unsubscribed) == 0, unsubscribed
@@ -1103,6 +1129,7 @@ class SubscriptionMiddleware:
                     return await handler(event, data)
         
         return await handler(event, data)
+
 # ================== РЕГИСТРАЦИЯ MIDDLEWARE ==================
 chat_validation_middleware = ChatValidationMiddleware()
 subscription_middleware = SubscriptionMiddleware()
@@ -1279,7 +1306,8 @@ async def add_group_subscription(cb: CallbackQuery, state: FSMContext):
         "1. ID группы должен быть числом (начинаться с -100)\n"
         "2. Юзернейм должен начинаться с @\n"
         "3. Название может содержать пробелы\n"
-        "4. Пользователь должен быть участником группы",
+        "4. Пользователь должен быть участником группы\n"
+        "5. Бот должен быть администратором группы",
         parse_mode='HTML',
         reply_markup=subscription_cancel_menu()
     )
@@ -1379,6 +1407,27 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         for sub in REQUIRED_SUBSCRIPTIONS:
             if sub["type"] == "group" and (str(sub["id"]) == str(group_id) or sub["username"] == username):
                 return await msg.answer(f"❌ Группа уже есть в списке.")
+        
+        # Проверяем, может ли бот проверять подписку в этой группе
+        try:
+            bot_member = await bot.get_chat_member(chat_id=group_id, user_id=bot.id)
+            if bot_member.status not in ["administrator", "creator"]:
+                await msg.answer(
+                    f"⚠️ <b>Предупреждение!</b>\n\n"
+                    f"Бот не является администратором в группе '{name}'.\n"
+                    f"Для корректной проверки подписок бот должен быть администратором.\n\n"
+                    f"Группа все равно будет добавлена, но проверка может не работать.",
+                    parse_mode='HTML'
+                )
+        except Exception as e:
+            logger.error(f"Ошибка проверки прав бота в группе: {e}")
+            await msg.answer(
+                f"⚠️ <b>Предупреждение!</b>\n\n"
+                f"Не удалось проверить права бота в группе '{name}'.\n"
+                f"Убедитесь, что бот добавлен в группу и является администратором.\n\n"
+                f"Группа все равно будет добавлена.",
+                parse_mode='HTML'
+            )
         
         new_sub = {
             "type": "group",
@@ -1611,7 +1660,7 @@ async def get_text_after_photo(msg: Message, state: FSMContext):
     if is_blacklisted:
         await msg.answer(
             f"❌ <b>Публикация отклонена</b>\n\n"
-            f"Текст содержит пользователя из списка запрещённых на публикацию: <code>{keyword}</code>\n",
+            f"Текст содержит слово из списка запрещённых на публикацию: <code>{keyword}</code>\n",
             parse_mode='HTML',
             reply_markup=menu_btn()
         )
@@ -1672,7 +1721,7 @@ async def get_text_only(msg: Message, state: FSMContext):
     if is_blacklisted:
         await msg.answer(
             f"❌ <b>Публикация отклонена</b>\n\n"
-            f"Текст содержит пользователя из списка запрещённых на публикацию: <code>{keyword}</code>",
+            f"Текст содержит слово из списка запрещённых на публикацию: <code>{keyword}</code>",
             parse_mode='HTML',
             reply_markup=menu_btn()
         )

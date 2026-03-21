@@ -222,58 +222,60 @@ class AdminPostState(StatesGroup):
 
 # ================== UTILS ==================
 async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
-    """Проверяет подписку пользователя на обязательные каналы, группы и ботов."""
+    """Проверяет подписку пользователя на обязательные каналы и группы."""
     if not REQUIRED_SUBSCRIPTIONS:
         return True, []
     
     unsubscribed = []
     
     for sub in REQUIRED_SUBSCRIPTIONS:
-        if sub["type"] in ["channel", "group"]:
+        # Пропускаем ботов, так как на них нельзя подписаться
+        if sub["type"] == "bot":
+            continue
+            
+        try:
+            chat_id = int(sub["id"])
+            
             try:
-                chat_id = int(sub["id"])
+                chat_member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
                 
-                try:
-                    chat_member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
-                    
-                    if chat_member.status in ["member", "administrator", "creator"]:
-                        logger.info(f"Пользователь {user_id} подписан на {sub['type']} {sub['name']}")
-                        continue
-                    else:
-                        logger.info(f"Пользователь {user_id} НЕ подписан на {sub['type']} {sub['name']} (статус: {chat_member.status})")
-                        unsubscribed.append(sub)
-                        
-                except TelegramForbiddenError:
-                    logger.error(f"Бот не имеет прав для проверки {sub['type']} {sub['name']} (ID: {chat_id})")
+                if chat_member.status in ["member", "administrator", "creator"]:
+                    logger.info(f"Пользователь {user_id} подписан на {sub['type']} {sub['name']}")
+                    continue
+                else:
+                    logger.info(f"Пользователь {user_id} НЕ подписан на {sub['type']} {sub['name']} (статус: {chat_member.status})")
                     unsubscribed.append(sub)
                     
-                except Exception as e:
-                    logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
+            except TelegramForbiddenError:
+                logger.error(f"Бот не имеет прав для проверки {sub['type']} {sub['name']} (ID: {chat_id})")
+                # Если бот не может проверить, считаем что пользователь не подписан
+                unsubscribed.append(sub)
+                
+            except Exception as e:
+                logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
+                unsubscribed.append(sub)
+                
+        except ValueError:
+            # Если ID не число, пробуем получить чат по username
+            try:
+                chat = await bot.get_chat(chat_id=sub["id"])
+                actual_chat_id = chat.id
+                
+                chat_member = await bot.get_chat_member(chat_id=actual_chat_id, user_id=user_id)
+                if chat_member.status in ["member", "administrator", "creator"]:
+                    continue
+                else:
                     unsubscribed.append(sub)
-                    
-            except ValueError:
-                try:
-                    chat = await bot.get_chat(chat_id=sub["id"])
-                    actual_chat_id = chat.id
-                    
-                    chat_member = await bot.get_chat_member(chat_id=actual_chat_id, user_id=user_id)
-                    if chat_member.status in ["member", "administrator", "creator"]:
-                        continue
-                    else:
-                        unsubscribed.append(sub)
-                except Exception as e:
-                    logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
-                    unsubscribed.append(sub)
-                    
-        elif sub["type"] == "bot":
-            unsubscribed.append(sub)
+            except Exception as e:
+                logger.error(f"Ошибка при проверке подписки на {sub['type']} {sub['id']}: {e}")
+                unsubscribed.append(sub)
     
     return len(unsubscribed) == 0, unsubscribed
 
 def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> InlineKeyboardMarkup:
-    """Создает клавиатуру для подписки на каналы/группы/бота."""
+    """Создает клавиатуру для подписки на каналы/группы."""
     if unsubscribed is None:
-        subscriptions_to_show = REQUIRED_SUBSCRIPTIONS
+        subscriptions_to_show = [sub for sub in REQUIRED_SUBSCRIPTIONS if sub["type"] != "bot"]
     else:
         subscriptions_to_show = unsubscribed
     
@@ -282,10 +284,8 @@ def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> Inli
     for sub in subscriptions_to_show:
         if sub["type"] == "channel":
             emoji = "📢"
-        elif sub["type"] == "group":
+        else:  # group
             emoji = "👥"
-        else:
-            emoji = "🤖"
         
         keyboard.append([
             InlineKeyboardButton(
@@ -294,9 +294,7 @@ def get_subscription_keyboard(unsubscribed: List[Dict[str, Any]] = None) -> Inli
             )
         ])
     
-    has_required = any(sub["type"] in ["channel", "group"] for sub in subscriptions_to_show)
-    
-    if has_required:
+    if subscriptions_to_show:
         keyboard.append([
             InlineKeyboardButton(text="✅ Я подписался", callback_data="check_subscription")
         ])
@@ -718,7 +716,6 @@ def pub_blacklist_menu(current_page: int = 1, total_pages: int = 1):
     """Клавиатура для черного списка публикаций с кнопками управления"""
     keyboard = []
     
-    # Кнопки навигации
     nav_buttons = []
     if current_page > 1:
         nav_buttons.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"pubblack_page_{current_page - 1}"))
@@ -728,13 +725,11 @@ def pub_blacklist_menu(current_page: int = 1, total_pages: int = 1):
     if nav_buttons:
         keyboard.append(nav_buttons)
     
-    # Кнопки управления
     keyboard.append([
         InlineKeyboardButton(text="➕ Добавить слово", callback_data="add_pub_blacklist"),
         InlineKeyboardButton(text="🗑️ Удалить слово", callback_data="remove_pub_blacklist")
     ])
     
-    # Кнопка возврата
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="blacklist")])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -769,7 +764,6 @@ def subscriptions_menu():
         [InlineKeyboardButton(text="📋 Список подписок", callback_data="list_subscriptions")],
         [InlineKeyboardButton(text="➕ Добавить канал", callback_data="add_channel_subscription")],
         [InlineKeyboardButton(text="👥 Добавить группу", callback_data="add_group_subscription")],
-        [InlineKeyboardButton(text="🤖 Добавить бота", callback_data="add_bot_subscription")],
         [InlineKeyboardButton(text="🗑️ Удалить подписку", callback_data="remove_subscription")],
         [InlineKeyboardButton(text="🔄 Обновить подписки", callback_data="refresh_subscriptions")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")]
@@ -875,7 +869,7 @@ class ChatValidationMiddleware:
                     'pending_posts', 'pending_page_', 'admin_panel',
                     'broadcast', 'manage_subscriptions', 'list_subscriptions',
                     'add_channel_subscription', 'add_group_subscription',
-                    'add_bot_subscription', 'remove_subscription', 
+                    'remove_subscription', 
                     'refresh_subscriptions', 'admin_publish_post', 
                     'admin_reject_post'
                 ]
@@ -914,91 +908,59 @@ class ChatValidationMiddleware:
 
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
+        # Админы всегда могут использовать бота
         if hasattr(event, 'from_user') and event.from_user.id in ADMINS:
             return await handler(event, data)
         
-        if isinstance(event, CallbackQuery):
-            if event.message.chat.type == 'private' and event.from_user.id in ADMINS:
-                admin_commands = [
-                    'blacklist', 'banned_users', 'pub_blacklist', 
-                    'add_pub_blacklist', 'remove_pub_blacklist',
-                    'banned_page_', 'pubblack_page_', 'admin_stats', 
-                    'pending_posts', 'pending_page_', 'admin_panel',
-                    'broadcast', 'manage_subscriptions', 'list_subscriptions',
-                    'add_channel_subscription', 'add_group_subscription',
-                    'add_bot_subscription', 'remove_subscription', 
-                    'refresh_subscriptions', 'admin_publish_post', 
-                    'admin_reject_post'
-                ]
-                
-                for cmd in admin_commands:
-                    if event.data.startswith(cmd):
-                        return await handler(event, data)
-            
+        # Пропускаем сообщения из групп
+        if isinstance(event, Message) and event.chat.type in ['group', 'supergroup']:
+            return await handler(event, data)
+        
+        # Пропускаем callback из групп
+        if isinstance(event, CallbackQuery) and event.message.chat.type in ['group', 'supergroup']:
+            return await handler(event, data)
+        
+        user_id = event.from_user.id
+        
+        # Проверка на блокировку
+        if await is_banned(user_id):
+            if isinstance(event, CallbackQuery):
+                await event.answer("🚫 Вы заблокированы.", show_alert=True)
+            elif isinstance(event, Message):
+                await event.answer("🚫 Вы заблокированы.")
+            return
+        
+        # Обработка команды /start и проверки подписки
         if isinstance(event, Message):
-            if event.chat.type in ['group', 'supergroup']:
-                return await handler(event, data)
-                
-            user_id = event.from_user.id
-            
             if event.text and event.text == "/start":
                 return await handler(event, data)
-            
-            if await is_banned(user_id):
-                return
-            
-            is_subscribed = await get_user_subscription_status(user_id)
-            
-            if not is_subscribed:
-                is_subscribed_now, unsubscribed = await check_subscription(user_id)
-                
-                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
-                
-                if unsubscribed_required:
-                    text = (
-                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
-                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
-                    )
-                    
-                    await event.answer(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
-                    return
-                else:
-                    await update_user_subscription_status(user_id, True)
-                    return await handler(event, data)
         
-        elif isinstance(event, CallbackQuery):
-            if event.message.chat.type in ['group', 'supergroup']:
-                return await handler(event, data)
-                
-            user_id = event.from_user.id
-            
+        if isinstance(event, CallbackQuery):
             if event.data == "check_subscription":
                 return await handler(event, data)
+        
+        # Проверка подписки
+        is_subscribed, unsubscribed = await check_subscription(user_id)
+        
+        # Фильтруем только каналы и группы (ботов пропускаем)
+        unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
+        
+        if unsubscribed_required:
+            text = (
+                f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
+                f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
+            )
             
-            if await is_banned(user_id):
-                await event.answer("🚫 Вы заблокированы.", show_alert=True)
-                return
-            
-            is_subscribed = await get_user_subscription_status(user_id)
-            
-            if not is_subscribed:
-                await event.answer("⚠️ Для использования бота необходимо подписаться.", show_alert=True)
-                
-                is_subscribed_now, unsubscribed = await check_subscription(user_id)
-                
-                unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
-                
-                if unsubscribed_required:
-                    text = (
-                        f"📢 <b>Для использования бота необходимо подписаться:</b>\n\n"
-                        f"👇 <i>Нажмите на кнопки ниже, чтобы перейти и подписаться, затем нажмите «Я подписался»:</i>"
-                    )
-                    
-                    await event.message.edit_text(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
-                    return
-                else:
-                    await update_user_subscription_status(user_id, True)
-                    return await handler(event, data)
+            if isinstance(event, CallbackQuery):
+                await event.answer("⚠️ Вы не подписаны на обязательные ресурсы.", show_alert=True)
+                await event.message.edit_text(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
+            else:
+                await event.answer(text, parse_mode='HTML', reply_markup=get_subscription_keyboard(unsubscribed_required))
+            return
+        
+        # Если подписка есть, обновляем статус в БД
+        if not is_subscribed:
+            await update_user_subscription_status(user_id, True)
         
         return await handler(event, data)
 
@@ -1030,6 +992,7 @@ async def start(msg: Message):
     
     await register_user(msg.from_user)
     
+    # Проверяем подписку при старте
     is_subscribed, unsubscribed = await check_subscription(msg.from_user.id)
     unsubscribed_required = [sub for sub in unsubscribed if sub["type"] in ["channel", "group"]]
     
@@ -1038,7 +1001,7 @@ async def start(msg: Message):
             f"<b>Для начала вам нужно подписаться</b>\n"
             f"После этого нажмите на кнопку «Я подписался».\n",
             parse_mode='HTML',
-            reply_markup=get_subscription_keyboard(unsubscribed)
+            reply_markup=get_subscription_keyboard(unsubscribed_required)
         )
         return
     
@@ -1178,28 +1141,6 @@ async def add_group_subscription(cb: CallbackQuery, state: FSMContext):
         reply_markup=subscription_cancel_menu()
     )
 
-@dp.callback_query(F.data == "add_bot_subscription")
-async def add_bot_subscription(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
-        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
-    
-    await state.set_state(SubscriptionState.wait_subscription_add)
-    await state.update_data(sub_type="bot")
-    
-    await cb.message.edit_text(
-        "🤖 <b>Добавление обязательного бота</b>\n\n"
-        "Отправьте данные бота в формате:\n"
-        "<code>юзернейм_бота Название_бота</code>\n\n"
-        "<i>Пример:</i>\n"
-        "<code>@smotrmaslyaninostars_bot Магазин звёзд</code>\n\n"
-        "<i>Примечания:</i>\n"
-        "1. Юзернейм должен начинаться с @\n"
-        "2. Название может содержать пробелы\n"
-        "3. Для бота будет создана ссылка вида: https://t.me/юзернейм_без_@",
-        parse_mode='HTML',
-        reply_markup=subscription_cancel_menu()
-    )
-
 @dp.message(SubscriptionState.wait_subscription_add)
 async def process_subscription_add(msg: Message, state: FSMContext):
     if msg.from_user.id not in ADMINS:
@@ -1317,47 +1258,6 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         )
         
         await log("subscription_add", f"admin {msg.from_user.id} added group {group_id} ({name})")
-    
-    elif sub_type == "bot":
-        parts = msg.text.split(maxsplit=1)
-        if len(parts) < 2:
-            return await msg.answer("❌ Неверный формат. Нужно: @юзернейм_бота Название_бота")
-        
-        username, name = parts
-        
-        if not username.startswith("@"):
-            return await msg.answer("❌ Юзернейм должен начинаться с @.")
-        
-        bot_id = username.lstrip("@")
-        url = f"https://t.me/{bot_id}"
-        
-        for sub in REQUIRED_SUBSCRIPTIONS:
-            if sub["type"] == "bot" and sub["username"] == username:
-                return await msg.answer(f"❌ Бот уже есть в списке.")
-        
-        new_sub = {
-            "type": "bot",
-            "id": bot_id,
-            "username": username,
-            "name": name,
-            "url": url
-        }
-        
-        REQUIRED_SUBSCRIPTIONS.append(new_sub)
-        await save_subscriptions_to_db()
-        
-        await msg.answer(
-            f"✅ Бот добавлен:\n"
-            f"<b>Тип:</b> Бот\n"
-            f"<b>Название:</b> {name}\n"
-            f"<b>Username:</b> {username}\n"
-            f"<b>ID:</b> <code>{bot_id}</code>\n"
-            f"<b>Ссылка:</b> {url}",
-            parse_mode='HTML',
-            reply_markup=subscriptions_menu()
-        )
-        
-        await log("subscription_add", f"admin {msg.from_user.id} added bot {username} ({name})")
     
     await state.clear()
 
@@ -2506,7 +2406,6 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
         except:
             time_str = added_time or "неизвестно"
         
-        # Пытаемся получить username админа
         admin_info = ""
         if added_by:
             try:
@@ -2607,7 +2506,6 @@ async def remove_pub_blacklist(cb: CallbackQuery, state: FSMContext):
     if not blacklist:
         return await cb.answer("📋 Черный список публикаций пуст.", show_alert=True)
     
-    # Создаем клавиатуру со списком слов
     keyboard = []
     for i, (keyword, added_by, added_time) in enumerate(blacklist, 1):
         keyboard.append([
@@ -2637,7 +2535,6 @@ async def process_remove_blacklist_word(cb: CallbackQuery):
     
     await cb.answer(f"✅ Слово '{keyword}' удалено из черного списка", show_alert=True)
     
-    # Возвращаемся к списку
     await show_pub_blacklist_page(cb, page=1)
 
 # ================== АДМИНСКАЯ СТАТИСТИКА ==================

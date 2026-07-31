@@ -1,6 +1,0 @@
-aiogram==3.29.1
-aiosqlite==0.22.1
-python-dotenv==1.2.2
-tzdata==2025.2
-nudenet==3.4.2
-openpyxl==3.1.5

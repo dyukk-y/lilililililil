@@ -95,3 +95,14 @@ async def check_photo_nsfw(image_bytes: bytes) -> Tuple[bool, Optional[str], flo
         return True, best_class, best_score
 
     return False, best_class, best_score
+
+
+def photo_detector_available() -> bool:
+    """Проверяет, доступен ли локальный детектор фото.
+
+    Функция оставлена синхронной, потому что сервис вызывает её через
+    asyncio.to_thread(). При недоступности NudeNet возвращается False,
+    приложение при этом продолжает запускаться и отправляет фото на ручную
+    модерацию.
+    """
+    return _get_detector() is not None

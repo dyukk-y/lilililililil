@@ -74,7 +74,7 @@ class ChatValidationMiddleware:
         "add_channel_subscription", "add_group_subscription",
         "remove_subscription",
         "refresh_subscriptions", "admin_publish_post",
-        "admin_reject_post", "admin_backup_now",
+        "admin_reject_post", "admin_ad_post", "admin_backup_now",
         "auto_phrase", "settings_", "export_users",
     ]
 
@@ -84,6 +84,15 @@ class ChatValidationMiddleware:
                 for cmd in self.ADMIN_PANEL_CALLBACKS:
                     if event.data.startswith(cmd):
                         return await handler(event, data)
+
+        # Команда /post — административный мастер рекламы. Для администратора
+        # она должна работать независимо от того, где команда отправлена:
+        # в личке, в группе администраторов или в другой группе. Иначе
+        # ChatValidationMiddleware ошибочно блокирует /post проверкой темы.
+        if isinstance(event, Message) and _is_admin(event.from_user.id) and event.text:
+            command = event.text.split(maxsplit=1)[0].split("@", 1)[0].lower()
+            if command == "/post":
+                return await handler(event, data)
 
         moderators_chat_id = get_setting("MODERATORS_CHAT_ID")
         admins_chat_id = get_setting("ADMINS_CHAT_ID")

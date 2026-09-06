@@ -7,12 +7,10 @@ from app.loader import bot, dp, logger
 from app.database import init_db
 from app.middlewares import setup_middlewares
 from app.runtime_settings import load_settings
-from app.local_ai import preload as preload_local_ai
-from app.config import LOCAL_AI_PRELOAD
 from app.services import (
     publish_post, recover_pending_posts, deletion_expiry_loop, moderation_expiry_loop,
 )
-from app.scheduler import publisher_loop, backup_loop, rebalance_loop, advertising_expiry_loop
+from app.scheduler import publisher_loop, backup_loop, rebalance_loop
 
 from app.handlers import (
     start,
@@ -34,7 +32,7 @@ from app.handlers import (
     auto_approve_phrases,
     settings_admin,
     unlock,
-    advertising,
+    donation,
 )
 
 ROUTERS = (
@@ -57,7 +55,7 @@ ROUTERS = (
     auto_approve_phrases.router,
     settings_admin.router,
     unlock.router,
-    advertising.router,
+    donation.router,
 )
 
 
@@ -69,14 +67,6 @@ async def main() -> None:
     # БД, при первом запуске заполняются из .env. Редактируются в
     # админ-панели без перезапуска (см. app/runtime_settings.py).
     await load_settings()
-
-    # Лёгкий локальный текстовый анализатор не требует загрузки ML-модели.
-    # preload оставлен для обратной совместимости со старой конфигурацией.
-    if LOCAL_AI_PRELOAD:
-        ai_ready = await preload_local_ai()
-        logger.info("Локальный анализатор: %s", "готов" if ai_ready else "недоступен")
-    else:
-        logger.info("Локальный анализатор: лёгкий режим без ML-модели")
 
     # Если бот упал между созданием поста и постановкой его в очередь
     # публикации — доигрываем обработку. Данные не теряются: пост уже
@@ -101,7 +91,6 @@ async def main() -> None:
     asyncio.create_task(backup_loop())
     asyncio.create_task(deletion_expiry_loop())
     asyncio.create_task(moderation_expiry_loop())
-    asyncio.create_task(advertising_expiry_loop())
 
     logger.info("Бот запущен и готов к работе")
     await bot.delete_webhook(drop_pending_updates=True)

@@ -20,7 +20,6 @@ import threading
 from typing import List, Optional, Tuple
 
 from app.runtime_settings import get as get_setting
-from app.config import LOW_MEMORY_MODE
 
 logger = logging.getLogger(__name__)
 
@@ -65,17 +64,10 @@ def _get_detector():
 
 
 def _detect_sync(image_bytes: bytes) -> List[dict]:
-    global _detector
     detector = _get_detector()
     if detector is None:
         return []
-    try:
-        return detector.detect(image_bytes)
-    finally:
-        if LOW_MEMORY_MODE:
-            # NudeNet is the heaviest photo-side model. Keep it only for the
-            # duration of a detection to avoid permanent RAM occupation.
-            _detector = None
+    return detector.detect(image_bytes)
 
 
 async def check_photo_nsfw(image_bytes: bytes) -> Tuple[bool, Optional[str], float]:
@@ -103,8 +95,3 @@ async def check_photo_nsfw(image_bytes: bytes) -> Tuple[bool, Optional[str], flo
         return True, best_class, best_score
 
     return False, best_class, best_score
-
-
-def photo_detector_available() -> bool:
-    """Возвращает True, если локальный NudeNet реально загрузился."""
-    return _get_detector() is not None

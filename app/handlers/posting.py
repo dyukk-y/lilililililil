@@ -1,4 +1,3 @@
-import asyncio
 from aiogram import F, Router
 from aiogram.types import *
 from aiogram.fsm.context import FSMContext
@@ -12,7 +11,6 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
-from app.moderation_photo import photo_detector_available
 
 router = Router()
 
@@ -21,8 +19,8 @@ router = Router()
 async def offer(cb: CallbackQuery):
     if await is_banned(cb.from_user.id):
         return await cb.answer("🚫 Вы заблокированы.", show_alert=True)
-    if await posts_today(cb.from_user.id) >= get_setting("USER_DAILY_POST_LIMIT"):
-        return await cb.answer(f"🔒 Лимит: {get_setting('USER_DAILY_POST_LIMIT')} постов в день.", show_alert=True)
+    if await posts_today(cb.from_user.id) >= 5:
+        return await cb.answer("🔒 Лимит: 5 постов в день.", show_alert=True)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📷 С фото", callback_data="with_photo")],
@@ -30,10 +28,10 @@ async def offer(cb: CallbackQuery):
         [InlineKeyboardButton(text="⬅ Назад", callback_data="menu")]
     ])
     await cb.message.edit_text(
-        "✍️ Новая публикация\n\n"
-        "Выберите формат поста. На следующем шаге бот подскажет, что нужно отправить.\n\n"
-        "📷 С фото — изображение + текст\n"
-        "📝 Без фото — только текст",
+        "Выберите тип поста:\n\n"
+        "⚠️ <b>Важно:</b>\n"
+        "Помните о правилах публикации. Пост проходит модерацию, "
+        "срок рассмотрения — до 24 часов.",
         parse_mode='HTML',
         reply_markup=kb
     )
@@ -46,10 +44,9 @@ async def with_photo(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(PostState.wait_photo)
     await cb.message.edit_text(
-        "📷 Добавьте фото\n\n"
-        "Можно отправить фото сразу с подписью — бот обработает её как текст публикации.\n\n"
-        "Если подписи нет, после фото я попрошу текст.\n\n"
-        "Если добавите подпись к фото, отдельно отправлять текст не понадобится.",
+        "Пришлите фото для публикации. 📷\n\n"
+        "<i>Можно сразу с подписью — если укажете текст с эмодзи 🧑/👩 "
+        "прямо в подписи к фото, отдельно присылать его не нужно.</i>",
         parse_mode='HTML',
         reply_markup=back_to_previous()
     )
@@ -79,7 +76,7 @@ async def get_photo(msg: Message, state: FSMContext):
 
     await msg.answer(
         "✅ Фото принято.\n\n"
-        "📝 Теперь пришли текст к фото:\n\n"
+        "📝 <b>Теперь пришли текст к фото:</b>\n\n"
         "⚠️ Не забудьте добавить 🧑 или 👩 в текст!",
         parse_mode='HTML',
         reply_markup=back_to_post_type()
@@ -107,7 +104,7 @@ async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> No
 
     if is_explicit:
         await msg.answer(
-            "❌ Публикация отклонена\n\n"
+            "❌ <b>Публикация отклонена</b>\n\n"
             "На фото обнаружен запрещённый контент.",
             parse_mode='HTML',
             reply_markup=menu_btn()
@@ -116,14 +113,13 @@ async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> No
         await state.clear()
         return
 
-    detector_ok = await asyncio.to_thread(photo_detector_available)
     await state.clear()
 
     post_id = await create_post(msg.from_user.id, text, data["photo"])
     logger.info(f"Создан пост #{post_id} с фото от пользователя {msg.from_user.id}")
 
     await _notify_submitted(msg, post_id)
-    await route_new_post(post_id, photo_checked=detector_ok)
+    await route_new_post(post_id)
     await log("new_post", f"photo post #{post_id} from user {msg.from_user.id}")
 
 # ================== NO PHOTO ==================
@@ -134,9 +130,8 @@ async def no_photo(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(PostState.wait_text_only)
     await cb.message.edit_text(
-        "📝 Текст публикации\n\n"
-        "Напишите пост так, как он должен выглядеть в канале.\n\n"
-        "⚠️ В самом начале обязательно поставьте 🧑 или 👩.",
+        "Пришлите текст для публикации.\n\n"
+        "⚠️ Не забудь добавить 🧑 или 👩 в текст!",
         reply_markup=back_to_previous()
     )
 
@@ -190,7 +185,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
     is_blacklisted, keyword = await is_in_publication_blacklist(text)
     if is_blacklisted:
         await msg.answer(
-            f"❌ Публикация отклонена\n\n"
+            f"❌ <b>Публикация отклонена</b>\n\n"
             f"Текст содержит запрещённое слово/фразу (маты, оскорбления или спам): "
             f"<code>{keyword}</code>",
             parse_mode='HTML',
@@ -216,7 +211,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
         is_gibberish, gibberish_reason = detect_gibberish(text)
         if is_gibberish:
             await msg.answer(
-                "❌ Публикация отклонена\n\n"
+                "❌ <b>Публикация отклонена</b>\n\n"
                 "Текст не похож на осмысленное сообщение. Опишите словами, "
                 "что вы хотите рассказать.",
                 parse_mode='HTML',
@@ -228,7 +223,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
     duplicate_count = await count_similar_posts(text)
     if duplicate_count >= get_setting("DUPLICATE_REPEAT_LIMIT"):
         await msg.answer(
-            "❌ Публикация отклонена\n\n"
+            "❌ <b>Публикация отклонена</b>\n\n"
             "Такой (или очень похожий) текст уже присылали слишком много раз. "
             "Пришлите, пожалуйста, что-то новое.",
             parse_mode='HTML',
@@ -247,8 +242,8 @@ async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
     
     if await is_banned(cb.from_user.id):
         return await cb.answer("🚫 Вы заблокированы.", show_alert=True)
-    if await posts_today(cb.from_user.id) >= get_setting("USER_DAILY_POST_LIMIT"):
-        return await cb.answer(f"🔒 Лимит: {get_setting('USER_DAILY_POST_LIMIT')} постов в день.", show_alert=True)
+    if await posts_today(cb.from_user.id) >= 5:
+        return await cb.answer("🔒 Лимит: 5 постов в день.", show_alert=True)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📷 С фото", callback_data="with_photo")],
@@ -258,7 +253,7 @@ async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
     
     await cb.message.edit_text(
         "Выберите тип поста:\n\n"
-        "⚠️ Важно:\n"
+        "⚠️ <b>Важно:</b>\n"
         "Помните о правилах публикации",
         parse_mode='HTML',
         reply_markup=kb

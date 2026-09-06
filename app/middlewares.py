@@ -49,43 +49,25 @@ class ChatValidationMiddleware:
     # модераторов, все кнопки админ-панели (включая "Стоп-слова") ошибочно
     # попадали под проверку "тема модерации" и блокировались с сообщением
     # "⚠️ Это действие доступно только в теме модерации".
-    # Callback'ы административной панели не должны зависеть от того,
-    # в каком чате/теме администратор нажал кнопку. В частности, раздел
-    # «Стоп-слова» должен одинаково работать из лички, админ-чата и любой
-    # другой темы. Динамические callback'ы (страницы, удаление слова и т.п.)
-    # тоже перечислены здесь, чтобы их не перехватывала проверка тем.
-    ADMIN_PANEL_CALLBACKS = (
+    ADMIN_PANEL_CALLBACKS = [
         "blacklist", "banned_users", "pub_blacklist",
         "add_pub_blacklist", "remove_pub_blacklist",
-        "remove_blacklist_word_", "banned_page_", "pubblack_page_",
-        "admin_stats", "admin_ai_stats", "admin_logs",
+        "banned_page_", "pubblack_page_", "admin_stats",
         "pending_posts", "pending_page_", "admin_panel",
         "broadcast", "manage_subscriptions", "list_subscriptions",
         "add_channel_subscription", "add_group_subscription",
-        "remove_subscription", "refresh_subscriptions",
-        "admin_publish_post", "admin_reject_post", "admin_backup_now",
-        "auto_phrase", "add_auto_phrase", "remove_auto_phrase",
-        "settings_", "settings_intro_comment", "export_users",
-        "admin_ad_post", "ad_type", "ad_abort", "ad_replace:", "ad_combo:", "ad_duration:", "ad_duration_back:", "ad_pin:",
-        "ad_pin_back:", "ad_confirm:", "ad_confirm_back:", "ad_cancel:",
-        "ad_subscription_back:", "ad_broadcast_back:", "ad_broadcast_confirm:",
-        "ad_delete_now:", "ad_unpin_now:", "ad_retry:",
-    )
-
-    @classmethod
-    def is_admin_panel_callback(cls, event: CallbackQuery) -> bool:
-        data = event.data or ""
-        return any(data == prefix or data.startswith(prefix)
-                   for prefix in cls.ADMIN_PANEL_CALLBACKS)
+        "remove_subscription",
+        "refresh_subscriptions", "admin_publish_post",
+        "admin_reject_post", "admin_backup_now",
+        "auto_phrase", "settings_", "export_users",
+    ]
 
     async def __call__(self, handler, event, data):
         if isinstance(event, CallbackQuery):
-            # Администратор, работающий с админ-панелью, не должен попадать
-            # под ограничения тем модераторского/админского чата. Особенно
-            # важно для «Стоп-слов»: кнопка открывается из /admin и все её
-            # дочерние действия должны выполняться в том же контексте.
-            if event.from_user.id in ADMINS and self.is_admin_panel_callback(event):
-                return await handler(event, data)
+            if event.from_user.id in ADMINS:
+                for cmd in self.ADMIN_PANEL_CALLBACKS:
+                    if event.data.startswith(cmd):
+                        return await handler(event, data)
 
         moderators_chat_id = get_setting("MODERATORS_CHAT_ID")
         admins_chat_id = get_setting("ADMINS_CHAT_ID")

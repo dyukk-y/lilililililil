@@ -13,7 +13,6 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
 from app.config import DELETION_REVIEWERS
-from app.runtime_settings import get as get_setting
 from app.database import is_banned, get_post_by_channel_message_id, get_post_by_id
 from app.keyboards import cancel_to_menu_keyboard, menu_btn
 from app.states import DeletePostState
@@ -38,7 +37,7 @@ async def present_delete_prompt(msg: Message, state: FSMContext, post_id: int) -
     await state.update_data(post_id=post_id)
     await state.set_state(DeletePostState.wait_reason)
     await msg.answer(
-        "📝 Опишите причину для удаления поста:",
+        "📝 <b>Опишите причину для удаления поста:</b>",
         parse_mode='HTML',
         reply_markup=cancel_to_menu_keyboard()
     )
@@ -51,7 +50,7 @@ async def delete_post_request_start(cb: CallbackQuery, state: FSMContext):
 
     await state.set_state(DeletePostState.wait_post_link)
     await cb.message.edit_text(
-        "🗑 Удаление поста\n\n"
+        "🗑 <b>Удаление поста</b>\n\n"
         "Пришлите ссылку на пост в канале (вида <code>https://t.me/канал/123</code>) "
         "или просто перешлите этот пост сюда из канала.",
         parse_mode='HTML',
@@ -110,8 +109,8 @@ async def delete_post_receive_reason(msg: Message, state: FSMContext):
         )
     elif result == "pending":
         await msg.answer(
-            f"📨 Заявка на удаление отправлена администрации. Обычно отвечают в течение "
-            f"{get_setting('DELETION_REQUEST_TIMEOUT_HOURS')} ч. — если ответа не будет, "
+            "📨 Заявка на удаление отправлена администрации. "
+            "Обычно отвечают в течение 24 часов — если ответа не будет, "
             "заявка отклонится автоматически, мы вам сообщим.",
             reply_markup=menu_btn()
         )

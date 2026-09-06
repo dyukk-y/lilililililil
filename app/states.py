@@ -43,12 +43,5 @@ class AutoPhraseState(StatesGroup):
 
 
 
-class AdvertisingState(StatesGroup):
-    wait_type = State()
-    wait_post = State()
-    wait_duration = State()
-    wait_pin = State()
-    wait_combo = State()
-    wait_subscription = State()
-    wait_broadcast_time = State()
-    wait_confirm = State()
+class DonationState(StatesGroup):
+    wait_amount = State()

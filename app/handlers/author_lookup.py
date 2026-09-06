@@ -34,18 +34,18 @@ router = Router()
 
 def _lookup_text(author_id: int, author_username, revealed: bool) -> str:
     if revealed:
-        title = "🔓 Данные автора расшифрованы"
+        title = "🔓 <b>Данные автора расшифрованы</b>"
         id_str = str(author_id)
         username_str = f"@{author_username}" if author_username else "не установлен"
     else:
-        title = "🔒 Я нашёл автора поста"
+        title = "🔒 <b>Я нашёл автора поста</b>"
         id_str = mask_user_id(author_id)
         username_str = mask_username(author_username)
 
     return (
         f"{title}\n\n"
-        f"🆔 ID: <code>{id_str}</code>\n"
-        f"📛 Юзернейм: {username_str}"
+        f"🆔 <b>ID:</b> <code>{id_str}</code>\n"
+        f"📛 <b>Юзернейм:</b> {username_str}"
     )
 
 
@@ -93,7 +93,7 @@ async def author_lookup_start(cb: CallbackQuery, state: FSMContext):
 
     await state.set_state(AuthorLookupState.wait_post_link)
     await cb.message.edit_text(
-        "🔎 Узнать автора поста\n\n"
+        "🔎 <b>Узнать автора поста</b>\n\n"
         "Пришлите ссылку на пост (вида <code>https://t.me/канал/123</code>) "
         "или перешлите этот пост сюда из канала.",
         parse_mode='HTML',

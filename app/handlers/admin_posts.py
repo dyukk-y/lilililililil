@@ -37,11 +37,11 @@ async def show_pending_posts_page(cb: CallbackQuery, page: int):
     total_pages = (total + 4) // 5 or 1
     
     if not posts:
-        text = "📭 Очередь публикаций пуста\n\nВсе посты либо уже опубликованы, либо ещё не отправлены."
+        text = "📭 <b>Очередь публикаций пуста</b>\n\nВсе посты либо уже опубликованы, либо ещё не отправлены."
         await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
         return
     
-    text_lines = [f"📅 Очередь публикаций (стр. {page}/{total_pages}):\n"]
+    text_lines = [f"📅 <b>Очередь публикаций (стр. {page}/{total_pages}):</b>\n"]
     
     start_idx = (page - 1) * 5 + 1
     for post_id, user_id, post_text, time, photo, status, scheduled_time in posts:
@@ -54,9 +54,9 @@ async def show_pending_posts_page(cb: CallbackQuery, page: int):
                 sched_str = scheduled_time
             time_line = f"   🕐 Публикация: {sched_str} (Новосибирск)"
         else:
-            time_line = f"   🕐 Ждёт решения модератора (до {get_setting('MODERATION_TIMEOUT_HOURS')} ч.)"
+            time_line = "   🕐 Ждёт решения модератора (до 24 ч.)"
 
-        text_lines.append(f"{start_idx}. 📌 Пост #{post_id}")
+        text_lines.append(f"<b>{start_idx}. 📌 Пост #{post_id}</b>")
         text_lines.append(f"   👤 Автор: <code>{user_id}</code>")
         text_lines.append(time_line)
         text_lines.append(f"   📄 {preview}")
@@ -91,7 +91,7 @@ async def admin_publish_post(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(AdminPostState.wait_post_id_for_publish)
     await cb.message.edit_text(
-        "⏩ Публикация поста прямо сейчас\n\n"
+        "⏩ <b>Публикация поста прямо сейчас</b>\n\n"
         "Введите номер поста, который хотите опубликовать немедленно "
         "(минуя очередь и запланированное время):",
         parse_mode='HTML',
@@ -132,7 +132,7 @@ async def process_admin_publish_post_id(msg: Message, state: FSMContext):
     await state.update_data(post_id=post_id, post_text=post[2], post_photo=post[3])
     
     preview_text = (
-        f"📨 Пост #{post_id}\n\n"
+        f"📨 <b>Пост #{post_id}</b>\n\n"
         f"{post[2]}\n\n"
         f"Опубликовать этот пост прямо сейчас?"
     )
@@ -200,7 +200,7 @@ async def admin_reject_post(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(AdminPostState.wait_post_id_for_reject)
     await cb.message.edit_text(
-        "📝 Отклонение поста\n\n"
+        "📝 <b>Отклонение поста</b>\n\n"
         "Введите номер поста, который хотите отклонить:",
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -240,7 +240,7 @@ async def process_admin_reject_post_id(msg: Message, state: FSMContext):
     await state.update_data(post_id=post_id, post_text=post[2], post_photo=post[3], user_id=post[1])
     
     preview_text = (
-        f"📨 Пост #{post_id}\n\n"
+        f"📨 <b>Пост #{post_id}</b>\n\n"
         f"{post[2]}\n\n"
         f"Отклонить этот пост?"
     )
@@ -284,7 +284,7 @@ async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
     await state.update_data(post_id=post_id)
     
     await cb.message.edit_text(
-        f"📝 Причина отклонения поста #{post_id}\n\n"
+        f"📝 <b>Причина отклонения поста #{post_id}</b>\n\n"
         "Напишите причину, которая будет отправлена автору:",
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -318,9 +318,9 @@ async def process_reject_reason(msg: Message, state: FSMContext):
     await state.update_data(reject_reason=reason)
     
     preview_text = (
-        f"📨 Пост #{post_id}\n\n"
+        f"📨 <b>Пост #{post_id}</b>\n\n"
         f"{post[2]}\n\n"
-        f"📝 Причина отклонения:\n{reason}\n\n"
+        f"📝 <b>Причина отклонения:</b>\n{reason}\n\n"
         f"Отправить это пользователю?"
     )
     

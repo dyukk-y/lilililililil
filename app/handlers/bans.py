@@ -25,8 +25,8 @@ async def ban_command(msg: Message):
     parts = msg.text.split(maxsplit=2)
     if len(parts) < 2:
         return await msg.answer(
-            "❌ Использование: <code>/ban &lt;user_id&gt; [причина]</code>\n\n"
-            "Примеры:\n"
+            "❌ <b>Использование:</b> <code>/ban &lt;user_id&gt; [причина]</code>\n\n"
+            "<i>Примеры:</i>\n"
             "<code>/ban 123456789 спам</code>\n"
             "<code>/ban 123456789 нарушение правил</code>",
             parse_mode='HTML'
@@ -49,12 +49,12 @@ async def ban_command(msg: Message):
             from app.handlers.unlock import unlock_keyboard
             await bot.send_message(
                 user_id,
-                f"🚫 Вы были заблокированы!\n\n"
-                f"📝 Причина: {reason}\n"
-                f"👮 Администратор: @{msg.from_user.username or 'без username'}\n"
-                f"🆔 ID администратора: {msg.from_user.id}\n\n"
-                f"🔒 Вы больше не можете использовать меню бота\n\n"
-                f"📞 Для разблокировки: Свяжитесь с @theaugustine, "
+                f"🚫 <b>Вы были заблокированы!</b>\n\n"
+                f"📝 <b>Причина:</b> {reason}\n"
+                f"👮 <b>Администратор:</b> @{msg.from_user.username or 'без username'}\n"
+                f"🆔 <b>ID администратора:</b> {msg.from_user.id}\n\n"
+                f"🔒 <b>Вы больше не можете использовать меню бота</b>\n\n"
+                f"📞 <b>Для разблокировки:</b> Свяжитесь с @theaugustine, "
                 f"либо разблокируйте себя самостоятельно за звёзды ниже 👇",
                 parse_mode='HTML',
                 reply_markup=unlock_keyboard({"bot": True, "channel": False, "comments": False}),
@@ -64,7 +64,7 @@ async def ban_command(msg: Message):
         
         await msg.answer(
             f"✅ Пользователь <code>{user_id}</code> заблокирован.\n"
-            f"📝 Причина: {reason}",
+            f"📝 <b>Причина:</b> {reason}",
             parse_mode='HTML'
         )
         
@@ -79,8 +79,8 @@ async def unban_command(msg: Message):
     parts = msg.text.split()
     if len(parts) < 2:
         return await msg.answer(
-            "❌ Использование: <code>/unban &lt;user_id&gt;</code>\n\n"
-            "Пример:\n"
+            "❌ <b>Использование:</b> <code>/unban &lt;user_id&gt;</code>\n\n"
+            "<i>Пример:</i>\n"
             "<code>/unban 123456789</code>",
             parse_mode='HTML'
         )
@@ -96,9 +96,9 @@ async def unban_command(msg: Message):
         try:
             await bot.send_message(
                 user_id,
-                "✅ Вы были разблокированы!\n\n"
+                "✅ <b>Вы были разблокированы!</b>\n\n"
                 "🔓 Теперь вы снова можете использовать бота.\n"
-                f"👮 Администратор: @{msg.from_user.username or 'без username'}\n",
+                f"👮 <b>Администратор:</b> @{msg.from_user.username or 'без username'}\n",
                 parse_mode='HTML'
             )
         except Exception as e:
@@ -123,11 +123,11 @@ async def show_banned_users_page(cb: CallbackQuery, page: int):
     total_pages = (total + 4) // 5
     
     if not banned_users:
-        text = "👤 Нет заблокированных пользователей"
+        text = "👤 <b>Нет заблокированных пользователей</b>"
         await cb.message.edit_text(text, parse_mode='HTML', reply_markup=blacklist_menu())
         return
     
-    text_lines = [f"🚫 Заблокированные пользователи (стр. {page}/{total_pages}):\n\n"]
+    text_lines = [f"🚫 <b>Заблокированные пользователи (стр. {page}/{total_pages}):</b>\n\n"]
     
     start_idx = (page - 1) * 5 + 1
     for i, (user_id, reason, ban_time, admin_username, username) in enumerate(banned_users, start_idx):
@@ -136,12 +136,12 @@ async def show_banned_users_page(cb: CallbackQuery, page: int):
         except:
             time_str = ban_time
         
-        text_lines.append(f"{i}. 🆔 <code>{user_id}</code>")
+        text_lines.append(f"<b>{i}. 🆔 <code>{user_id}</code></b>")
         text_lines.append(f"   📛 @{username or 'без username'}")
-        text_lines.append(f"   📝 Причина: {reason}")
+        text_lines.append(f"   📝 <b>Причина:</b> {reason}")
         if admin_username:
-            text_lines.append(f"   👮 Админ: @{admin_username}")
-        text_lines.append(f"   🕐 Заблокирован: {time_str}\n")
+            text_lines.append(f"   👮 <b>Админ:</b> @{admin_username}")
+        text_lines.append(f"   🕐 <b>Заблокирован:</b> {time_str}\n")
     
     text = "\n".join(text_lines)
     

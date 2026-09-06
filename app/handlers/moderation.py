@@ -69,34 +69,6 @@ async def who_rejected(cb: CallbackQuery):
 
     await cb.answer(text, show_alert=True)
 
-
-@router.callback_query(F.data.startswith("why_ai_"))
-async def why_ai(cb: CallbackQuery):
-    if not await validate_chat_for_moderation(cb):
-        return await cb.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
-    try: post_id=int(cb.data.split("_")[-1])
-    except ValueError: return await cb.answer("Неверный ID", show_alert=True)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur=await db.execute("SELECT ai_score, ai_confidence, ai_decision, ai_reason, trust_score FROM posts p LEFT JOIN users u ON p.user_id=u.user_id WHERE p.id=?",(post_id,))
-        row=await cur.fetchone()
-    if not row or row[0] is None:
-        return await cb.answer("ИИ-анализ для этого поста ещё не сохранён.", show_alert=True)
-    score, conf, dec, reason, trust=row
-    text=f"🤖 AI: {score}/100\nУверенность: {float(conf or 0):.0%}\nTrust: {float(trust or 0):.1f}\nРешение: {'авто' if dec=='auto' else 'модерация'}\n{reason or ''}"
-    if len(text)>200: text=text[:197]+"..."
-    await cb.answer(text, show_alert=True)
-
-@router.callback_query(F.data.startswith("ai_error_"))
-async def ai_error(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
-        return await cb.answer("🚫 Нет доступа", show_alert=True)
-    try:
-        pid=int(cb.data.split("_")[-1])
-    except ValueError:
-        return await cb.answer("Неверный ID", show_alert=True)
-    ok=await mark_ai_error(pid, cb.from_user.id)
-    await cb.answer("✅ Ошибка ИИ записана" if ok else "ℹ️ Уже записано", show_alert=True)
-
 # ================== ПУБЛИКАЦИЯ (одним кликом, без лишнего второго подтверждения) ==================
 @router.callback_query(F.data.startswith("pub_"))
 async def confirm_pub(cb: CallbackQuery):

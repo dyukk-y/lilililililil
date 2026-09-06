@@ -21,29 +21,18 @@ async def _admin_panel_text() -> str:
     blacklist, _ = await get_publication_blacklist(page=1, per_page=100)
     blacklist_count = len(blacklist) if blacklist else 0
     subscription_count = len(REQUIRED_SUBSCRIPTIONS)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("SELECT COUNT(*) FROM posts WHERE status IN ('moderation','approved')")
-        queue_count = (await cur.fetchone())[0]
-        cur = await db.execute("SELECT COUNT(*) FROM posts WHERE ai_decision='auto' AND time >= datetime('now','-30 days')")
-        ai_auto_30d = (await cur.fetchone())[0]
-        cur = await db.execute("SELECT COUNT(*) FROM posts WHERE ai_decision IS NOT NULL AND time >= datetime('now','-30 days')")
-        ai_total_30d = (await cur.fetchone())[0]
-    ai_coverage = (ai_auto_30d / ai_total_30d * 100) if ai_total_30d else 0
 
     return (
-        f"🛠 Центр управления\n\n"
-        f"Панель администратора: публикации, модерация, пользователи и настройки.\n\n"
-        f"📊 Состояние:\n"
-        f"👥 Пользователей: {users_count}\n"
-        f"🚫 Заблокировано: {banned_count}\n"
-        f"📝 Стоп-слов (маты/оскорбления/спам): {blacklist_count}\n"
-        f"📢 Обязательных подписок: {subscription_count}\n"
-        f"⏳ В очереди сейчас: {queue_count}\n\n"
-        f"🤖 ИИ за 30 дней · автопроверка {ai_coverage:.0f}% из анализированных постов.\n\n"
-        f"🤖 Посты с ключевыми фразами (см. «Фразы для автопубликации») "
+        f"🛠 <b>Админ-панель</b>\n\n"
+        f"📊 <b>Статистика:</b>\n"
+        f"👥 Пользователей: <b>{users_count}</b>\n"
+        f"🚫 Заблокировано: <b>{banned_count}</b>\n"
+        f"📝 Стоп-слов (маты/оскорбления/спам): <b>{blacklist_count}</b>\n"
+        f"📢 Обязательных подписок: <b>{subscription_count}</b>\n\n"
+        f"🤖 <i>Посты с ключевыми фразами (см. «Фразы для автопубликации») "
         f"публикуются автоматически по расписанию; всё остальное — фото и "
-        f"текст без таких фраз — ждёт решения модератора (до 24 часов).\n\n"
-        f"Выберите действие:"
+        f"текст без таких фраз — ждёт решения модератора (до 24 часов).</i>\n\n"
+        f"<i>Выберите действие:</i>"
     )
 
 
@@ -78,13 +67,13 @@ async def blacklist_panel(cb: CallbackQuery):
     blacklist_count = len(blacklist) if blacklist else 0
     
     text = (
-        f"🚫 Заблокированные пользователи и стоп-слова\n\n"
-        f"📊 Статистика:\n"
-        f"👤 Заблокированных пользователей: {banned_count}\n"
-        f"📝 Стоп-слов (маты/оскорбления/спам): {blacklist_count}\n\n"
-        f"Стоп-слова автоматически отклоняют пост ещё до отправки в очередь "
-        f"на публикацию. Список можно свободно редактировать ниже.\n\n"
-        f"Выберите действие:"
+        f"🚫 <b>Заблокированные пользователи и стоп-слова</b>\n\n"
+        f"📊 <b>Статистика:</b>\n"
+        f"👤 Заблокированных пользователей: <b>{banned_count}</b>\n"
+        f"📝 Стоп-слов (маты/оскорбления/спам): <b>{blacklist_count}</b>\n\n"
+        f"<i>Стоп-слова автоматически отклоняют пост ещё до отправки в очередь "
+        f"на публикацию. Список можно свободно редактировать ниже.</i>\n\n"
+        f"<i>Выберите действие:</i>"
     )
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=blacklist_menu())

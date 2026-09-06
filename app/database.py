@@ -70,8 +70,7 @@ async def init_db() -> None:
             reg_date TEXT,
             is_subscribed INTEGER DEFAULT 0,
             comments_count INTEGER DEFAULT 0,
-            mentions_count INTEGER DEFAULT 0,
-            trust_score REAL DEFAULT 0
+            mentions_count INTEGER DEFAULT 0
         )""")
 
         await db.execute("""
@@ -94,18 +93,7 @@ async def init_db() -> None:
             text_norm TEXT,
             channel_message_id INTEGER,
             review_deadline TEXT,
-            comment_posted INTEGER DEFAULT 0,
-            publish_attempts INTEGER DEFAULT 0,
-            last_publish_error TEXT,
-            publishing_started_at TEXT,
-            comment_claimed_at TEXT,
-            published_at TEXT,
-            photo_hash TEXT,
-            ai_score INTEGER,
-            ai_confidence REAL,
-            ai_decision TEXT,
-            ai_reason TEXT,
-            ocr_text TEXT
+            comment_posted INTEGER DEFAULT 0
         )""")
 
         await db.execute("""
@@ -188,114 +176,11 @@ async def init_db() -> None:
         )""")
 
         await db.execute("""
-        CREATE TABLE IF NOT EXISTS ai_feedback(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER NOT NULL,
-            user_id INTEGER,
-            ai_decision TEXT,
-            human_decision TEXT NOT NULL,
-            ai_score INTEGER,
-            ai_confidence REAL,
-            trust_before REAL,
-            trust_delta REAL,
-            created_time TEXT
-        )""")
-
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS ai_corrections(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER NOT NULL,
-            admin_id INTEGER NOT NULL,
-            correction TEXT NOT NULL,
-            created_time TEXT
-        )""")
-
-        await db.execute("""
         CREATE TABLE IF NOT EXISTS auto_approve_phrases(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             phrase TEXT UNIQUE,
             added_by INTEGER,
             added_time TEXT
-        )""")
-
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS auto_approve_phrase_disabled(
-            phrase TEXT PRIMARY KEY,
-            disabled_by INTEGER,
-            disabled_time TEXT
-        )""")
-
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS advertising_posts(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            admin_id INTEGER NOT NULL,
-            source_chat_id INTEGER NOT NULL,
-            source_message_id INTEGER NOT NULL,
-            preview_chat_id INTEGER,
-            preview_message_id INTEGER,
-            control_chat_id INTEGER,
-            control_message_id INTEGER,
-            channel_message_id INTEGER,
-            duration_hours INTEGER NOT NULL,
-            pin_duration_hours INTEGER DEFAULT 0,
-            created_at TEXT NOT NULL,
-            published_at TEXT,
-            expires_at TEXT,
-            pin_expires_at TEXT,
-            status TEXT DEFAULT 'draft',
-            error TEXT,
-            ad_type TEXT DEFAULT 'post',
-            subscription_type TEXT,
-            subscription_id TEXT,
-            subscription_username TEXT,
-            subscription_name TEXT,
-            subscription_url TEXT,
-            subscription_hours INTEGER DEFAULT 0,
-            broadcast_count INTEGER DEFAULT 0
-        )
-        """)
-
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS advertising_subscriptions(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ad_id INTEGER NOT NULL,
-            sub_type TEXT NOT NULL,
-            sub_id TEXT NOT NULL,
-            username TEXT DEFAULT '',
-            name TEXT NOT NULL,
-            url TEXT NOT NULL,
-            starts_at TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            status TEXT DEFAULT 'active',
-            UNIQUE(ad_id, sub_type, sub_id)
-        )""")
-
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS advertising_broadcasts(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ad_id INTEGER NOT NULL,
-            sequence_no INTEGER NOT NULL,
-            scheduled_at TEXT NOT NULL,
-            sent_at TEXT,
-            status TEXT DEFAULT 'scheduled',
-            attempts INTEGER DEFAULT 0,
-            last_error TEXT,
-            UNIQUE(ad_id, sequence_no)
-        )""")
-
-        # Идемпотентная доставка рекламных рассылок: один пользователь не
-        # должен получить одну и ту же рассылку повторно после временной ошибки
-        # или перезапуска процесса.
-        await db.execute("""
-        CREATE TABLE IF NOT EXISTS advertising_broadcast_deliveries(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            broadcast_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            status TEXT DEFAULT 'pending',
-            attempts INTEGER DEFAULT 0,
-            sent_at TEXT,
-            last_error TEXT,
-            UNIQUE(broadcast_id, user_id)
         )""")
 
         await db.commit()
@@ -317,36 +202,6 @@ async def init_db() -> None:
         await db.execute("CREATE INDEX IF NOT EXISTS idx_deletion_status ON deletion_requests(status, expire_time)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_posts_review_deadline ON posts(status, auto_status, review_deadline)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_star_purchases_user ON star_purchases(user_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_posts_text_norm ON posts(text_norm)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_posts_photo_hash ON posts(photo_hash)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_posts_published_at ON posts(published_at)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_posts_ai_decision ON posts(ai_decision)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ai_feedback_time ON ai_feedback(created_time)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ai_feedback_post ON ai_feedback(post_id)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ai_corrections_time ON ai_corrections(created_time)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_advertising_status_expiry ON advertising_posts(status, expires_at)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_advertising_pin_expiry ON advertising_posts(status, pin_expires_at)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_advertising_admin ON advertising_posts(admin_id, created_at)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ad_sub_expiry ON advertising_subscriptions(status, expires_at)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ad_broadcast_due ON advertising_broadcasts(status, scheduled_at)")
-        await db.execute("CREATE INDEX IF NOT EXISTS idx_ad_broadcast_delivery ON advertising_broadcast_deliveries(broadcast_id, status)")
-        # Если процесс был убит во время отправки рассылки, незавершённые
-        # операции безопасно возвращаются в очередь после перезапуска.
-        await db.execute("UPDATE advertising_broadcasts SET status='scheduled' WHERE status='sending'")
-        await db.execute("UPDATE advertising_broadcast_deliveries SET status='pending' WHERE status='sending'")
-        # Идемпотентность платежей: сначала оставляем самую раннюю запись
-        # каждого charge_id, чтобы индекс можно было безопасно добавить и на
-        # старую БД с историческими дублями.
-        await db.execute("""
-            DELETE FROM star_purchases
-            WHERE telegram_charge_id IS NOT NULL AND telegram_charge_id != ''
-              AND id NOT IN (
-                  SELECT MIN(id) FROM star_purchases
-                  WHERE telegram_charge_id IS NOT NULL AND telegram_charge_id != ''
-                  GROUP BY telegram_charge_id
-              )
-        """)
-        await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_star_charge_unique ON star_purchases(telegram_charge_id) WHERE telegram_charge_id IS NOT NULL AND telegram_charge_id != ''")
 
         await db.commit()
         logger.info("База данных инициализирована")
@@ -369,38 +224,16 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
         ("channel_message_id", "INTEGER"),
         ("review_deadline", "TEXT"),
         ("comment_posted", "INTEGER DEFAULT 0"),
-        ("publish_attempts", "INTEGER DEFAULT 0"),
-        ("last_publish_error", "TEXT"),
-        ("publishing_started_at", "TEXT"),
-        ("comment_claimed_at", "TEXT"),
-        ("published_at", "TEXT"),
-        ("photo_hash", "TEXT"),
-        ("ai_score", "INTEGER"),
-        ("ai_confidence", "REAL"),
-        ("ai_decision", "TEXT"),
-        ("ai_reason", "TEXT"),
-        ("ocr_text", "TEXT"),
-        ("publish_next_retry_at", "TEXT"),
     ):
         if col not in posts_cols:
             await db.execute(f"ALTER TABLE posts ADD COLUMN {col} {coltype}")
             logger.info(f"Миграция: добавлена колонка posts.{col}")
 
-    ads_cols = await _columns("advertising_posts")
-    if "ad_type" not in ads_cols:
-        await db.execute("ALTER TABLE advertising_posts ADD COLUMN ad_type TEXT DEFAULT 'post'")
-        logger.info("Миграция: добавлена колонка advertising_posts.ad_type")
-    ads_cols = await _columns("advertising_posts")
-    for col, ddl in (("subscription_type", "TEXT"), ("subscription_id", "TEXT"), ("subscription_username", "TEXT"), ("subscription_name", "TEXT"), ("subscription_url", "TEXT"), ("subscription_hours", "INTEGER DEFAULT 0"), ("broadcast_count", "INTEGER DEFAULT 0")):
-        if col not in ads_cols:
-            await db.execute(f"ALTER TABLE advertising_posts ADD COLUMN {col} {ddl}")
-            logger.info("Миграция: добавлена колонка advertising_posts.%s", col)
-
     users_cols = await _columns("users")
     for col, coltype in (
         ("comments_count", "INTEGER DEFAULT 0"),
         ("mentions_count", "INTEGER DEFAULT 0"),
-        ("trust_score", "REAL DEFAULT 0"),
+        ("trust_score", "REAL DEFAULT 0.0"),
     ):
         if col not in users_cols:
             await db.execute(f"ALTER TABLE users ADD COLUMN {col} {coltype}")
@@ -452,51 +285,38 @@ async def seed_default_blacklist() -> None:
 # стоп-слова, дубликаты, осмысленность текста). Если ни одной фразы нет —
 # пост уходит на обязательную ручную модерацию, как и посты с фото.
 DEFAULT_AUTO_APPROVE_PHRASES = [
-    # Идентификация человека
-    "что за", "что за мальчик", "что за девочка", "что за парень",
-    "что за девушка", "что за мальчики", "что за девочки",
-    "расскажите про", "расскажите о", "расскажите кто",
-    "расскажите кто такой", "расскажите кто такая", "расскажите о нем",
-    "расскажите о нём", "кто это", "кто она", "кто он", "кто такой",
-    "кто такая", "кто знает", "подскажите кто", "как зовут",
-    # Контакты / знакомство
-    "срочно дайте юз", "юз в лс", "юзернейм в лс", "контакты в лс",
-    "дайте юз", "дайте юзернейм", "можно юз", "можно инст",
-    "хочу познакомиться", "хочу познакомится", "было приятно познакомиться",
-    "понравилась", "понравился", "понравилась девушка", "понравился парень",
-    # Поиск / встреча
-    "разыскивается", "ищу эту", "ищу этого", "ищу эту девушку",
-    "ищу этого парня", "видели её", "видели ее", "видели его",
-    "где найти", "где можно встретить", "кто едет в", "кто будет в",
-    "у нас в", "с кем можно",
+    "что за", "расскажите про", "расскажите о", "срочно дайте юз",
+    "расскажите кто", "понравилась", "понравился", "кто это", "кто она",
+    "кто он", "кто знает", "подскажите кто", "как зовут", "юз в лс",
+    "юзернейм в лс", "контакты в лс", "разыскивается", "ищу эту",
+    "ищу этого", "видели её", "видели его", "было приятно познакомиться",
+    "хочу познакомиться",
 ]
 
 
 async def seed_default_auto_approve_phrases() -> None:
-    """Добавляет недостающие системные фразы, не затирая существующие записи.
-
-    INSERT OR IGNORE безопасен для обновлений: уже настроенные фразы и
-    добавленные администратором записи не изменяются. Если администратор
-    удалил системную фразу, она попадает в таблицу отключений и не возвращается
-    при следующем запуске.
-    """
+    """Загружает стандартный список ключевых фраз для автопубликации, только
+    если список ещё пуст — не затирает правки администратора."""
     async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("SELECT COUNT(*) FROM auto_approve_phrases")
+        count = (await cur.fetchone())[0]
+        if count > 0:
+            return
+
         now = str(datetime.now())
         added = 0
         for phrase in DEFAULT_AUTO_APPROVE_PHRASES:
-            disabled = await db.execute(
-                "SELECT 1 FROM auto_approve_phrase_disabled WHERE phrase=?", (phrase,)
-            )
-            if await disabled.fetchone():
-                continue
-            cur = await db.execute(
-                "INSERT OR IGNORE INTO auto_approve_phrases(phrase, added_by, added_time) VALUES(?,?,?)",
-                (phrase, None, now),
-            )
-            added += cur.rowcount or 0
+            try:
+                await db.execute(
+                    "INSERT INTO auto_approve_phrases(phrase, added_by, added_time) VALUES(?,?,?)",
+                    (phrase, None, now),
+                )
+                added += 1
+            except aiosqlite.IntegrityError:
+                pass
         await db.commit()
         if added:
-            logger.info(f"Добавлено {added} новых системных фраз для автопубликации")
+            logger.info(f"Загружен стандартный список из {added} ключевых фраз для автопубликации")
 
 
 async def has_auto_approve_trigger(text: str) -> bool:
@@ -513,7 +333,6 @@ async def add_auto_approve_phrase(phrase: str, admin_id: int) -> bool:
     phrase_clean = phrase.strip().lower()
     async with aiosqlite.connect(DB_NAME) as db:
         try:
-            await db.execute("DELETE FROM auto_approve_phrase_disabled WHERE phrase=?", (phrase_clean,))
             await db.execute(
                 "INSERT INTO auto_approve_phrases(phrase, added_by, added_time) VALUES(?,?,?)",
                 (phrase_clean, admin_id, str(datetime.now())),
@@ -524,15 +343,10 @@ async def add_auto_approve_phrase(phrase: str, admin_id: int) -> bool:
             return False
 
 
-async def remove_auto_approve_phrase(phrase: str, admin_id: Optional[int] = None) -> None:
+async def remove_auto_approve_phrase(phrase: str) -> None:
     phrase_clean = phrase.strip().lower()
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("DELETE FROM auto_approve_phrases WHERE phrase=?", (phrase_clean,))
-        if phrase_clean in DEFAULT_AUTO_APPROVE_PHRASES:
-            await db.execute(
-                "INSERT OR REPLACE INTO auto_approve_phrase_disabled(phrase, disabled_by, disabled_time) VALUES(?,?,?)",
-                (phrase_clean, admin_id, str(datetime.now())),
-            )
         await db.commit()
 
 
@@ -617,7 +431,7 @@ async def register_user(user) -> None:
         if not await cur.fetchone():
             await db.execute(
                 "INSERT INTO users(user_id, username, reg_date, is_subscribed) VALUES(?,?,?,?)",
-                (user.id, user.username, datetime.now(TIMEZONE).date().isoformat(), 0),
+                (user.id, user.username, str(datetime.now().date()), 0),
             )
             await db.commit()
             logger.info(f"Зарегистрирован новый пользователь: {user.id}")
@@ -826,110 +640,40 @@ async def is_in_publication_blacklist(text: str) -> Tuple[bool, str]:
 
 # ================== ДЕДУПЛИКАЦИЯ ПОСТОВ ==================
 async def count_similar_posts(text: str, exclude_post_id: Optional[int] = None) -> int:
-    """Проверяет повторы только в последние N часов. После окна повтор разрешён."""
+    """Считает, сколько раз уже встречался похожий текст (нечёткое сравнение,
+    без учёта регистра/пробелов/пунктуации/эмодзи). Сравнение (CPU-затратная
+    часть) выполняется в отдельном потоке, чтобы не блокировать event loop."""
     norm = normalize_text(text)
     if not norm:
         return 0
-    cutoff = (datetime.now(TIMEZONE).replace(tzinfo=None) - timedelta(hours=get_setting("DUPLICATE_LOOKBACK_HOURS"))).isoformat()
+
     async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "SELECT id, text_norm FROM posts WHERE time>=? AND status IN ('published','approved','publishing') "
-            "AND text_norm IS NOT NULL AND text_norm != '' AND length(text_norm) BETWEEN ? AND ?",
-            (cutoff, max(1,int(len(norm)*0.55)), max(len(norm),int(len(norm)*1.8))),
-        )
+        cur = await db.execute("SELECT id, text_norm FROM posts WHERE text_norm IS NOT NULL AND text_norm != ''")
         rows = await cur.fetchall()
-    threshold = get_setting("DUPLICATE_SIMILARITY_THRESHOLD")
-    def _count():
-        return sum(1 for pid, other in rows if not exclude_post_id or pid != exclude_post_id if other == norm or SequenceMatcher(None,norm,other).ratio() >= threshold)
+
+    def _count() -> int:
+        matches = 0
+        for pid, other_norm in rows:
+            if exclude_post_id and pid == exclude_post_id:
+                continue
+            if not other_norm:
+                continue
+            if other_norm == norm:
+                matches += 1
+                continue
+            if SequenceMatcher(None, norm, other_norm).ratio() >= get_setting("DUPLICATE_SIMILARITY_THRESHOLD"):
+                matches += 1
+        return matches
+
     return await asyncio.to_thread(_count)
-
-async def get_recent_photo_hashes(photo_hash: str) -> List[str]:
-    if not photo_hash: return []
-    cutoff=(datetime.now(TIMEZONE).replace(tzinfo=None)-timedelta(hours=get_setting("PHOTO_DUPLICATE_LOOKBACK_HOURS"))).isoformat()
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur=await db.execute("SELECT photo_hash FROM posts WHERE time>=? AND status IN ('published','approved','publishing') AND photo_hash IS NOT NULL",(cutoff,))
-        return [r[0] for r in await cur.fetchall()]
-
-async def set_ai_analysis(post_id:int, score:int, confidence:float, decision:str, reason:str, ocr_text:str="") -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE posts SET ai_score=?, ai_confidence=?, ai_decision=?, ai_reason=?, ocr_text=? WHERE id=?",(score,confidence,decision,reason,ocr_text[:3000],post_id))
-        await db.commit()
-
-async def get_user_trust_score(user_id:int) -> float:
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur=await db.execute("SELECT COALESCE(trust_score,0) FROM users WHERE user_id=?",(user_id,)); r=await cur.fetchone()
-        return float(r[0]) if r else 0.0
-
-async def adjust_user_trust(user_id:int, delta:float) -> float:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE users SET trust_score=MAX(-100,MIN(100,COALESCE(trust_score,0)+?)) WHERE user_id=?",(delta,user_id))
-        await db.commit()
-        cur=await db.execute("SELECT COALESCE(trust_score,0) FROM users WHERE user_id=?",(user_id,)); r=await cur.fetchone()
-        return float(r[0]) if r else 0.0
-
-
-async def record_ai_feedback(post_id: int, human_decision: str, trust_delta: float = 0.0) -> None:
-    """Сохраняет решение человека как обучающий сигнал и обновляет trust.
-    Повторный клик по той же карточке не создаёт второй feedback."""
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "SELECT user_id, ai_decision, ai_score, ai_confidence FROM posts WHERE id=?",
-            (post_id,),
-        )
-        row = await cur.fetchone()
-        if not row:
-            return
-        user_id, ai_decision, ai_score, ai_confidence = row
-        cur = await db.execute("SELECT 1 FROM ai_feedback WHERE post_id=? LIMIT 1", (post_id,))
-        if await cur.fetchone():
-            return
-        trust_before = 0.0
-        cur = await db.execute("SELECT COALESCE(trust_score,0) FROM users WHERE user_id=?", (user_id,))
-        r = await cur.fetchone()
-        if r:
-            trust_before = float(r[0])
-        now = datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()
-        await db.execute(
-            "INSERT INTO ai_feedback(post_id,user_id,ai_decision,human_decision,ai_score,ai_confidence,trust_before,trust_delta,created_time) VALUES(?,?,?,?,?,?,?,?,?)",
-            (post_id,user_id,ai_decision,human_decision,ai_score,ai_confidence,trust_before,trust_delta,now),
-        )
-        if user_id and trust_delta:
-            await db.execute("UPDATE users SET trust_score=MAX(-100,MIN(100,COALESCE(trust_score,0)+?)) WHERE user_id=?", (trust_delta,user_id))
-        await db.commit()
-
-
-async def record_ai_correction(post_id: int, admin_id: int, correction: str = "error") -> bool:
-    """Фиксирует явную ошибку AI, не затирая исходное решение модели."""
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur=await db.execute("SELECT 1 FROM ai_corrections WHERE post_id=? AND admin_id=? LIMIT 1",(post_id,admin_id))
-        if await cur.fetchone():
-            return False
-        await db.execute("INSERT INTO ai_corrections(post_id,admin_id,correction,created_time) VALUES(?,?,?,?)",(post_id,admin_id,correction,datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()))
-        cur=await db.execute("SELECT user_id FROM posts WHERE id=?",(post_id,)); row=await cur.fetchone()
-        if row and row[0]:
-            await db.execute("UPDATE users SET trust_score=MAX(-100,MIN(100,COALESCE(trust_score,0)-3)) WHERE user_id=?",(row[0],))
-        await db.commit()
-        return True
-
-
-async def get_ai_stats(days: int = 30) -> Dict[str, int]:
-    cutoff=(datetime.now(TIMEZONE).replace(tzinfo=None)-timedelta(days=days)).isoformat()
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur=await db.execute("SELECT COUNT(*) FROM posts WHERE time>=? AND ai_decision='auto'",(cutoff,)); auto=(await cur.fetchone())[0]
-        cur=await db.execute("SELECT COUNT(*) FROM posts WHERE time>=? AND ai_decision='manual'",(cutoff,)); manual=(await cur.fetchone())[0]
-        cur=await db.execute("SELECT COUNT(*) FROM ai_feedback WHERE created_time>=? AND human_decision='published'",(cutoff,)); approved=(await cur.fetchone())[0]
-        cur=await db.execute("SELECT COUNT(*) FROM ai_feedback WHERE created_time>=? AND human_decision='rejected'",(cutoff,)); rejected=(await cur.fetchone())[0]
-        cur=await db.execute("SELECT COUNT(*) FROM ai_feedback WHERE created_time>=? AND ai_decision='auto' AND human_decision='rejected'",(cutoff,)); false_positive=(await cur.fetchone())[0]
-        cur=await db.execute("SELECT COUNT(*) FROM ai_feedback WHERE created_time>=? AND ai_decision='manual' AND human_decision='published'",(cutoff,)); false_negative=(await cur.fetchone())[0]
-    return {"auto":auto,"manual":manual,"approved":approved,"rejected":rejected,"false_positive":false_positive,"false_negative":false_negative}
 
 
 # ================== ПОСТЫ ==================
-async def create_post(user_id: int, text: str, photo: Optional[str], photo_hash: Optional[str] = None) -> int:
+async def create_post(user_id: int, text: str, photo: Optional[str]) -> int:
     async with aiosqlite.connect(DB_NAME) as db:
         cursor = await db.execute(
-            "INSERT INTO posts(user_id, text, photo, time, status, text_norm, photo_hash) VALUES(?,?,?,?,?,?,?)",
-            (user_id, text, photo, datetime.now(TIMEZONE).replace(tzinfo=None).isoformat(), "moderation", normalize_text(text), photo_hash),
+            "INSERT INTO posts(user_id, text, photo, time, status, text_norm) VALUES(?,?,?,?,?,?)",
+            (user_id, text, photo, str(datetime.now()), "moderation", normalize_text(text)),
         )
         post_id = cursor.lastrowid
         await db.commit()
@@ -937,7 +681,7 @@ async def create_post(user_id: int, text: str, photo: Optional[str], photo_hash:
 
 
 async def posts_today(user_id: int) -> int:
-    today = datetime.now(TIMEZONE).date().isoformat()
+    today = str(datetime.now().date())
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT COUNT(*) FROM posts WHERE user_id=? AND date(time)=?",
@@ -948,7 +692,7 @@ async def posts_today(user_id: int) -> int:
 
 
 async def posts_week(user_id: int) -> int:
-    week_ago = (datetime.now(TIMEZONE).replace(tzinfo=None) - timedelta(days=7)).isoformat()
+    week_ago = str(datetime.now() - timedelta(days=7))
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT COUNT(*) FROM posts WHERE user_id=? AND time>=?",
@@ -1075,42 +819,19 @@ async def get_post_channel_message_id(post_id: int) -> Optional[int]:
         return row[0] if row else None
 
 
-async def claim_intro_comment(post_id: int) -> bool:
-    """Захватывает право на отправку комментария без ложного 'sent'."""
+async def mark_intro_comment_posted(post_id: int) -> bool:
+    """Атомарно помечает, что вводный комментарий ('Будьте вежливы...' с
+    кнопками) под постом уже отправлен. Возвращает True только для того
+    вызова, который реально выставил флаг — защита от отправки комментария
+    дважды, если по каким-то причинам обработчик автопересылки сработает
+    больше одного раза для одного и того же поста."""
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
-            "UPDATE posts SET comment_posted=2, comment_claimed_at=? WHERE id=? AND (comment_posted IS NULL OR comment_posted=0)",
-            (datetime.now(TIMEZONE).replace(tzinfo=None).isoformat(), post_id),
+            "UPDATE posts SET comment_posted=1 WHERE id=? AND (comment_posted IS NULL OR comment_posted=0)",
+            (post_id,),
         )
         await db.commit()
         return cur.rowcount == 1
-
-
-async def mark_intro_comment_posted(post_id: int) -> bool:
-    """Сохраняет совместимый API: claim + final success."""
-    return await claim_intro_comment(post_id)
-
-
-async def finish_intro_comment(post_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE posts SET comment_posted=1, comment_claimed_at=NULL WHERE id=? AND comment_posted=2", (post_id,))
-        await db.commit()
-
-
-async def reset_intro_comment_claim(post_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE posts SET comment_posted=0, comment_claimed_at=NULL WHERE id=? AND comment_posted=2", (post_id,))
-        await db.commit()
-
-
-async def get_stuck_intro_comments() -> List[int]:
-    cutoff = (datetime.now(TIMEZONE).replace(tzinfo=None) - timedelta(minutes=5)).isoformat()
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "SELECT id FROM posts WHERE comment_posted=2 AND (comment_claimed_at IS NULL OR comment_claimed_at<=?)",
-            (cutoff,),
-        )
-        return [r[0] for r in await cur.fetchall()]
 
 
 async def approve_and_schedule(post_id: int, scheduled_time: datetime) -> None:
@@ -1132,8 +853,8 @@ async def get_due_posts() -> List[int]:
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT id FROM posts WHERE status='approved' AND scheduled_time IS NOT NULL "
-            "AND scheduled_time<=? AND (publish_next_retry_at IS NULL OR publish_next_retry_at<=?) ORDER BY scheduled_time",
-            (now_local, now_local),
+            "AND scheduled_time<=? ORDER BY scheduled_time",
+            (now_local,),
         )
         return [r[0] for r in await cur.fetchall()]
 
@@ -1169,57 +890,6 @@ async def get_scheduled_times_for_date(date_str: str) -> List[str]:
         return [r[0] for r in await cur.fetchall() if r[0]]
 
 
-async def claim_post_for_publishing(post_id: int, publisher_id: int = 0) -> bool:
-    """Атомарно захватывает пост перед вызовом Telegram API."""
-    now = datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "UPDATE posts SET status='publishing', moderator_id=?, publishing_started_at=?, "
-            "publish_attempts=COALESCE(publish_attempts,0)+1, last_publish_error=NULL, publish_next_retry_at=NULL "
-            "WHERE id=? AND status IN ('moderation','approved')",
-            (publisher_id, now, post_id),
-        )
-        await db.commit()
-        return cur.rowcount == 1
-
-
-async def finish_publishing(post_id: int, channel_message_id: int) -> bool:
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "UPDATE posts SET status='published', channel_message_id=?, "
-            "moderation_time=?, published_at=?, publishing_started_at=NULL, last_publish_error=NULL "
-            "WHERE id=? AND status='publishing'",
-            (channel_message_id, datetime.now(TIMEZONE).replace(tzinfo=None).isoformat(), datetime.now(TIMEZONE).replace(tzinfo=None).isoformat(), post_id),
-        )
-        await db.commit()
-        return cur.rowcount == 1
-
-
-async def fail_publishing(post_id: int, error: str, retry: bool = True) -> None:
-    """Возвращает публикацию в очередь с экспоненциальной паузой."""
-    status = "approved" if retry else "moderation"
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("SELECT COALESCE(publish_attempts,0) FROM posts WHERE id=?", (post_id,))
-        row = await cur.fetchone(); attempts = int(row[0]) if row else 1
-        delay = min(3600, max(30, 30 * (2 ** max(0, attempts-1)))) if retry else 0
-        next_retry = (datetime.now(TIMEZONE).replace(tzinfo=None) + timedelta(seconds=delay)).isoformat() if retry else None
-        await db.execute(
-            "UPDATE posts SET status=?, last_publish_error=?, publishing_started_at=NULL, publish_next_retry_at=? WHERE id=? AND status='publishing'",
-            (status, (error or "")[:1000], next_retry, post_id),
-        )
-        await db.commit()
-
-
-async def get_stuck_publishing_posts() -> List[int]:
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "SELECT id FROM posts WHERE status='publishing' "
-            "AND (publishing_started_at IS NULL OR publishing_started_at <= ?)",
-            ((datetime.now(TIMEZONE).replace(tzinfo=None) - timedelta(minutes=5)).isoformat(),),
-        )
-        return [r[0] for r in await cur.fetchall()]
-
-
 async def try_finalize_post(post_id: int, moderator_id: int, status: str,
                              reason: Optional[str] = None,
                              from_statuses: Tuple[str, ...] = ("moderation", "approved")) -> bool:
@@ -1237,7 +907,7 @@ async def try_finalize_post(post_id: int, moderator_id: int, status: str,
         cur = await db.execute(
             f"UPDATE posts SET status=?, moderator_id=?, moderation_time=?, reject_reason=? "
             f"WHERE id=? AND status IN ({placeholders})",
-            (status, moderator_id, datetime.now(TIMEZONE).replace(tzinfo=None).isoformat(), reason, post_id, *from_statuses),
+            (status, moderator_id, str(datetime.now()), reason, post_id, *from_statuses),
         )
         await db.commit()
         return cur.rowcount == 1
@@ -1282,7 +952,7 @@ async def mark_post_deleted(post_id: int) -> None:
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "UPDATE posts SET status='deleted', moderation_time=? WHERE id=?",
-            (datetime.now(TIMEZONE).replace(tzinfo=None).isoformat(), post_id),
+            (str(datetime.now()), post_id),
         )
         await db.commit()
 
@@ -1290,7 +960,7 @@ async def mark_post_deleted(post_id: int) -> None:
 # ================== ЗАЯВКИ НА УДАЛЕНИЕ ПОСТА ==================
 async def create_deletion_request(post_id: int, requester_id: int, reason: str,
                                    timeout_hours: int) -> int:
-    now = datetime.now(TIMEZONE).replace(tzinfo=None)
+    now = datetime.now()
     expire = now + timedelta(hours=timeout_hours)
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
@@ -1330,23 +1000,14 @@ async def claim_deletion_request(request_id: int, decided_by: int, status: str) 
         cur = await db.execute(
             "UPDATE deletion_requests SET status=?, decided_by=?, decided_time=? "
             "WHERE id=? AND status='pending_admin'",
-            (status, decided_by, datetime.now(TIMEZONE).replace(tzinfo=None).isoformat(), request_id),
+            (status, decided_by, str(datetime.now()), request_id),
         )
         await db.commit()
         return cur.rowcount == 1
 
 
-async def reopen_deletion_request(request_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE deletion_requests SET status='pending_admin', decided_by=NULL, decided_time=NULL WHERE id=? AND status='approved'",
-            (request_id,),
-        )
-        await db.commit()
-
-
 async def get_expired_deletion_requests() -> List[int]:
-    now = datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()
+    now = str(datetime.now())
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
             "SELECT id FROM deletion_requests WHERE status='pending_admin' AND expire_time<=?",
@@ -1366,339 +1027,18 @@ async def get_star_purchase(user_id: int, post_id: int, kind: str):
 
 
 async def record_star_purchase(user_id: int, kind: str, post_id: Optional[int], amount_stars: int,
-                                telegram_charge_id: str) -> bool:
+                                telegram_charge_id: str) -> None:
     async with aiosqlite.connect(DB_NAME) as db:
         try:
             await db.execute(
                 "INSERT INTO star_purchases(user_id, kind, post_id, amount_stars, telegram_charge_id, time) "
                 "VALUES(?,?,?,?,?,?)",
-                (user_id, kind, post_id, amount_stars, telegram_charge_id, datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()),
+                (user_id, kind, post_id, amount_stars, telegram_charge_id, str(datetime.now())),
             )
             await db.commit()
-            return True
         except aiosqlite.IntegrityError:
-            return False  # идемпотентный повтор successful_payment
+            pass  # уже записано (повторный successful_payment на один и тот же лот — игнорируем)
 
-
-# ================== РЕКЛАМНЫЕ ПОСТЫ ==================
-async def create_advertising_post(admin_id: int, source_chat_id: int, source_message_id: int,
-                                  duration_hours: int, ad_type: str = "post") -> int:
-    now = datetime.now(TIMEZONE)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            """INSERT INTO advertising_posts(
-                admin_id, source_chat_id, source_message_id, duration_hours,
-                created_at, status, ad_type
-            ) VALUES(?,?,?,?,?,?,?)""",
-            (admin_id, source_chat_id, source_message_id, duration_hours,
-             now.isoformat(), "draft", ad_type),
-        )
-        await db.commit()
-        return cur.lastrowid
-
-
-async def set_advertising_preview(ad_id: int, chat_id: int, message_id: int,
-                                  control_message_id: Optional[int] = None) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            """UPDATE advertising_posts
-               SET preview_chat_id=?, preview_message_id=?, control_chat_id=?, control_message_id=?
-               WHERE id=?""",
-            (chat_id, message_id, chat_id, control_message_id, ad_id),
-        )
-        await db.commit()
-
-
-async def set_advertising_control(ad_id: int, chat_id: int, message_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE advertising_posts SET control_chat_id=?, control_message_id=? WHERE id=?",
-            (chat_id, message_id, ad_id),
-        )
-        await db.commit()
-
-
-async def get_advertising_post(ad_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("SELECT * FROM advertising_posts WHERE id=?", (ad_id,))
-        return await cur.fetchone()
-
-
-async def update_advertising_source(ad_id: int, source_chat_id: int, source_message_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE advertising_posts SET source_chat_id=?, source_message_id=?, preview_chat_id=NULL, preview_message_id=NULL WHERE id=? AND status='draft'",
-            (source_chat_id, source_message_id, ad_id),
-        )
-        await db.commit()
-
-
-async def set_advertising_type(ad_id: int, ad_type: str) -> None:
-    if ad_type not in ("post", "combo"):
-        ad_type = "post"
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE advertising_posts SET ad_type=? WHERE id=? AND status='draft'", (ad_type, ad_id))
-        await db.commit()
-
-
-async def update_advertising_pin(ad_id: int, pin_duration_hours: int) -> None:
-    pin_duration_hours = max(0, int(pin_duration_hours))
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE advertising_posts SET pin_duration_hours=? WHERE id=? AND status='draft'",
-            (pin_duration_hours, ad_id),
-        )
-        await db.commit()
-
-
-async def update_advertising_duration(ad_id: int, duration_hours: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE advertising_posts SET duration_hours=? WHERE id=? AND status='draft'",
-            (duration_hours, ad_id),
-        )
-        await db.commit()
-
-
-async def publish_advertising_post(ad_id: int, channel_message_id: int,
-                                   pin_duration_hours: int = 0) -> bool:
-    now = datetime.now(TIMEZONE)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            """UPDATE advertising_posts
-               SET channel_message_id=?, pin_duration_hours=?, published_at=?,
-                   expires_at=?, pin_expires_at=?, status='published', error=NULL
-               WHERE id=? AND status='draft'""",
-            (
-                channel_message_id, pin_duration_hours, now.isoformat(),
-                (now + timedelta(hours=(await _ad_duration(db, ad_id)))).isoformat(),
-                (now + timedelta(hours=pin_duration_hours)).isoformat() if pin_duration_hours else None,
-                ad_id,
-            ),
-        )
-        await db.commit()
-        return bool(cur.rowcount)
-
-
-async def _ad_duration(db: aiosqlite.Connection, ad_id: int) -> int:
-    cur = await db.execute("SELECT duration_hours FROM advertising_posts WHERE id=?", (ad_id,))
-    row = await cur.fetchone()
-    return int(row[0]) if row else 0
-
-
-async def set_advertising_error(ad_id: int, error: str) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE advertising_posts SET error=?, status='error' WHERE id=?", (error[:1000], ad_id))
-        await db.commit()
-
-
-async def cancel_advertising_post(ad_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("UPDATE advertising_posts SET status='cancelled' WHERE id=? AND status='draft'", (ad_id,))
-        await db.execute("DELETE FROM advertising_broadcasts WHERE ad_id=?", (ad_id,))
-        await db.execute("DELETE FROM advertising_subscriptions WHERE ad_id=?", (ad_id,))
-        await db.commit()
-
-
-async def reopen_advertising_post(ad_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE advertising_posts SET status='draft', error=NULL WHERE id=? AND status='error'",
-            (ad_id,),
-        )
-        await db.commit()
-
-
-async def get_due_advertising_posts(now: Optional[datetime] = None):
-    now = now or datetime.now(TIMEZONE)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            """SELECT id, channel_message_id, expires_at, pin_expires_at
-               FROM advertising_posts
-               WHERE status='published' AND (
-                   (expires_at IS NOT NULL AND expires_at<=?) OR
-                   (pin_expires_at IS NOT NULL AND pin_expires_at<=?)
-               )""",
-            (now.isoformat(), now.isoformat()),
-        )
-        return await cur.fetchall()
-
-
-async def finish_advertising_expiry(ad_id: int, deleted: bool = False) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        if deleted:
-            await db.execute("UPDATE advertising_posts SET status='expired' WHERE id=?", (ad_id,))
-        else:
-            await db.execute(
-                "UPDATE advertising_posts SET pin_duration_hours=0, pin_expires_at=NULL WHERE id=?",
-                (ad_id,),
-            )
-        await db.commit()
-
-
-async def get_active_advertising_posts():
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "SELECT id, channel_message_id, expires_at, pin_expires_at FROM advertising_posts WHERE status='published'"
-        )
-        return await cur.fetchall()
-
-
-# ================== РЕКЛАМНЫЕ ПОДПИСКИ И РАССЫЛКИ ==================
-async def set_advertising_subscription_target(ad_id: int, sub: Optional[dict], hours: int = 0) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        if sub:
-            await db.execute(
-                """UPDATE advertising_posts SET subscription_type=?, subscription_id=?, subscription_username=?,
-                   subscription_name=?, subscription_url=?, subscription_hours=? WHERE id=? AND status='draft'""",
-                (sub.get('type'), str(sub.get('id')), sub.get('username',''), sub.get('name',''), sub.get('url',''), int(hours), ad_id),
-            )
-        else:
-            await db.execute("UPDATE advertising_posts SET subscription_type=NULL, subscription_id=NULL, subscription_username=NULL, subscription_name=NULL, subscription_url=NULL, subscription_hours=0 WHERE id=? AND status='draft'", (ad_id,))
-        await db.commit()
-
-async def get_advertising_subscription_target(ad_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("SELECT subscription_type, subscription_id, subscription_username, subscription_name, subscription_url, subscription_hours FROM advertising_posts WHERE id=?", (ad_id,))
-        return await cur.fetchone()
-
-async def activate_advertising_subscription(ad_id: int, starts_at: datetime) -> bool:
-    target = await get_advertising_subscription_target(ad_id)
-    if not target or not target[0] or not target[1] or not target[5]:
-        return False
-    expires = starts_at + timedelta(hours=int(target[5]))
-    return await add_advertising_subscription(ad_id, {"type": target[0], "id": target[1], "username": target[2] or "", "name": target[3] or "", "url": target[4] or ""}, starts_at, expires)
-
-async def clear_advertising_scheduled_extras(ad_id: int) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("DELETE FROM advertising_broadcasts WHERE ad_id=?", (ad_id,))
-        await db.execute("DELETE FROM advertising_subscriptions WHERE ad_id=?", (ad_id,))
-        await db.commit()
-
-
-async def add_advertising_subscription(ad_id: int, sub: dict, starts_at: datetime, expires_at: datetime) -> bool:
-    async with aiosqlite.connect(DB_NAME) as db:
-        try:
-            await db.execute(
-                """INSERT INTO advertising_subscriptions
-                (ad_id, sub_type, sub_id, username, name, url, starts_at, expires_at, status)
-                VALUES(?,?,?,?,?,?,?,?, 'active')""",
-                (ad_id, sub["type"], str(sub["id"]), sub.get("username", ""), sub["name"], sub["url"], starts_at.isoformat(), expires_at.isoformat()),
-            )
-            await db.commit()
-            return True
-        except aiosqlite.IntegrityError:
-            return False
-
-async def get_active_advertising_subscriptions(now: Optional[datetime] = None) -> List[dict]:
-    now = now or datetime.now(TIMEZONE)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            """SELECT id, ad_id, sub_type, sub_id, username, name, url, starts_at, expires_at
-               FROM advertising_subscriptions
-               WHERE status='active' AND starts_at<=? AND expires_at>? ORDER BY id""",
-            (now.isoformat(), now.isoformat()),
-        )
-        rows = await cur.fetchall()
-    return [{"row_id": r[0], "ad_id": r[1], "type": r[2], "id": r[3], "username": r[4], "name": r[5], "url": r[6], "starts_at": r[7], "expires_at": r[8]} for r in rows]
-
-async def expire_advertising_subscriptions(now: Optional[datetime] = None) -> int:
-    now = now or datetime.now(TIMEZONE)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("UPDATE advertising_subscriptions SET status='expired' WHERE status='active' AND expires_at<=?", (now.isoformat(),))
-        await db.commit()
-        return cur.rowcount or 0
-
-async def add_advertising_broadcast(ad_id: int, sequence_no: int, scheduled_at: datetime) -> bool:
-    async with aiosqlite.connect(DB_NAME) as db:
-        try:
-            await db.execute("INSERT INTO advertising_broadcasts(ad_id, sequence_no, scheduled_at, status) VALUES(?,?,?,'scheduled')", (ad_id, sequence_no, scheduled_at.isoformat()))
-            await db.commit()
-            return True
-        except aiosqlite.IntegrityError:
-            return False
-
-async def get_due_advertising_broadcasts(now: Optional[datetime] = None):
-    now = now or datetime.now(TIMEZONE)
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            """SELECT b.id, b.ad_id, b.sequence_no, b.scheduled_at, a.channel_message_id
-               FROM advertising_broadcasts b JOIN advertising_posts a ON a.id=b.ad_id
-               WHERE b.status='scheduled' AND b.scheduled_at<=? AND a.status='published'
-                 AND a.channel_message_id IS NOT NULL
-                 AND (a.expires_at IS NULL OR b.scheduled_at < a.expires_at)
-               ORDER BY b.scheduled_at, b.id""", (now.isoformat(),)
-        )
-        return await cur.fetchall()
-
-
-async def claim_advertising_delivery(broadcast_id: int, user_id: int) -> bool:
-    """Атомарно резервирует доставку одной рассылки одному пользователю."""
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO advertising_broadcast_deliveries(broadcast_id,user_id,status) VALUES(?,?, 'pending')",
-            (broadcast_id, user_id),
-        )
-        cur = await db.execute(
-            """UPDATE advertising_broadcast_deliveries SET status='sending', attempts=COALESCE(attempts,0)+1
-               WHERE broadcast_id=? AND user_id=? AND status='pending'""",
-            (broadcast_id, user_id),
-        )
-        await db.commit()
-        return cur.rowcount == 1
-
-
-async def retry_advertising_delivery(broadcast_id: int, user_id: int, error: Optional[str] = None) -> None:
-    """Возвращает доставку в pending после временной ошибки Telegram."""
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(
-            "UPDATE advertising_broadcast_deliveries SET status='pending', last_error=? WHERE broadcast_id=? AND user_id=?",
-            ((error or '')[:1000], broadcast_id, user_id),
-        )
-        await db.commit()
-
-
-async def finish_advertising_delivery(broadcast_id: int, user_id: int, success: bool, error: Optional[str] = None) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        if success:
-            await db.execute(
-                "UPDATE advertising_broadcast_deliveries SET status='sent', sent_at=?, last_error=NULL WHERE broadcast_id=? AND user_id=?",
-                (datetime.now(TIMEZONE).isoformat(), broadcast_id, user_id),
-            )
-        else:
-            await db.execute(
-                "UPDATE advertising_broadcast_deliveries SET status='failed', last_error=? WHERE broadcast_id=? AND user_id=?",
-                ((error or 'unknown error')[:1000], broadcast_id, user_id),
-            )
-        await db.commit()
-
-
-async def get_advertising_delivery_stats(broadcast_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute(
-            "SELECT status, COUNT(*) FROM advertising_broadcast_deliveries WHERE broadcast_id=? GROUP BY status",
-            (broadcast_id,),
-        )
-        return dict(await cur.fetchall())
-
-async def claim_advertising_broadcast(broadcast_id: int) -> bool:
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("UPDATE advertising_broadcasts SET status='sending', attempts=COALESCE(attempts,0)+1 WHERE id=? AND status='scheduled'", (broadcast_id,))
-        await db.commit()
-        return cur.rowcount == 1
-
-async def finish_advertising_broadcast(broadcast_id: int, error: Optional[str] = None) -> None:
-    async with aiosqlite.connect(DB_NAME) as db:
-        if error:
-            await db.execute("UPDATE advertising_broadcasts SET status='scheduled', last_error=? WHERE id=?", (error[:1000], broadcast_id))
-        else:
-            await db.execute("UPDATE advertising_broadcasts SET status='sent', sent_at=? WHERE id=?", (datetime.now(TIMEZONE).isoformat(), broadcast_id))
-        await db.commit()
-
-async def get_advertising_broadcasts(ad_id: int):
-    async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("SELECT id, sequence_no, scheduled_at, sent_at, status FROM advertising_broadcasts WHERE ad_id=? ORDER BY sequence_no", (ad_id,))
-        return await cur.fetchall()
 
 # ================== ОЧЕРЕДЬ: ПОЗИЦИЯ, ПЕРЕНОС ПОСТОВ, ПРОСРОЧЕННАЯ МОДЕРАЦИЯ ==================
 async def get_total_pending_count() -> int:

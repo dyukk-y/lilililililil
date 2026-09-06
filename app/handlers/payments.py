@@ -17,12 +17,13 @@ from aiogram.types import Message, PreCheckoutQuery
 from app.handlers.author_lookup import complete_author_reveal
 from app.handlers.priority_boost import complete_priority_boost
 from app.handlers.unlock import complete_unlock
+from app.handlers.donation import complete_donation
 
 logger = logging.getLogger(__name__)
 
 router = Router()
 
-_KNOWN_PREFIXES = ("reveal|", "priority|", "unlock|")
+_KNOWN_PREFIXES = ("reveal|", "priority|", "unlock|", "donation|")
 
 
 @router.pre_checkout_query()
@@ -48,20 +49,20 @@ async def process_successful_payment(msg: Message):
             return
 
         if parts[0] == "priority" and len(parts) == 3:
-            _, post_id_str, payer_id_str = parts
-            post_id = int(post_id_str)
-            payer_id = int(payer_id_str)
-            if payer_id != msg.from_user.id:
-                raise ValueError("payer mismatch")
-            from app.runtime_settings import get as get_setting
-            if msg.successful_payment.total_amount != get_setting("PRIORITY_BOOST_PRICE_STARS"):
-                raise ValueError("priority price mismatch")
-            await complete_priority_boost(msg, post_id)
+            _, post_id_str, _payer_id_str = parts
+            await complete_priority_boost(msg, int(post_id_str))
             return
 
         if parts[0] == "unlock" and len(parts) == 2:
             _, scope = parts
             await complete_unlock(msg, scope)
+            return
+
+        if parts[0] == "donation" and len(parts) == 3:
+            _, payer_id_str, amount_str = parts
+            if int(payer_id_str) != msg.from_user.id:
+                raise ValueError("Плательщик в payload не совпадает с пользователем")
+            await complete_donation(msg, int(amount_str))
             return
 
         logger.error(f"Не удалось обработать successful_payment с payload={payload!r}")

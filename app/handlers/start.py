@@ -76,7 +76,7 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         if command.args:
             await state.update_data(pending_deep_link=command.args)
         await msg.answer(
-            f"Для начала вам нужно подписаться\n"
+            f"<b>Для начала вам нужно подписаться</b>\n"
             f"После этого нажмите на кнопку «Я подписался».\n",
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed_required)
@@ -89,10 +89,8 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         return
 
     await msg.answer(
-        "Привет 👋 \n\n"
-        "Нажмите «Предложить пост» и следуйте подсказкам.\n\n"
-        "⚠️ Важно: каждый пост должен начинаться с 🧑, 👩"
-        "Выберите действие ниже 👇",
+        "Привет! 👋\n\n"
+        "Выбери действие:",
         parse_mode='HTML',
         reply_markup=main_menu()
     )
@@ -115,7 +113,7 @@ async def check_subscription_callback(cb: CallbackQuery, state: FSMContext):
     
     if unsubscribed_required:
         await cb.message.edit_text(
-            f"Вы еще не подписались 😡\n"
+            f"<b>Вы еще не подписались 😡</b>\n"
             f"После подписки нажмите кнопку «Я подписался» еще раз",
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed_required)
@@ -134,11 +132,9 @@ async def check_subscription_callback(cb: CallbackQuery, state: FSMContext):
             return
 
     await cb.message.edit_text(
-        "✅ Всё готово\n\n"
-        "Подписка подтверждена. Теперь вам доступны все основные функции бота.\n\n"
-        "📝 Для новой публикации нажмите «Предложить пост».\n"
-        "👤 В профиле можно посмотреть свою статистику.\n\n"
-        "Выберите действие ниже 👇",
+        "✅ <b>Отлично! Вы подписались на необходимые ресурсы</b>\n\n"
+        "Привет! 👋\n\n"
+        "Выбери действие:",
         parse_mode='HTML',
         reply_markup=main_menu()
     )

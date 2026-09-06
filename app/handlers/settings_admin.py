@@ -60,7 +60,7 @@ async def settings_list(cb: CallbackQuery):
     ]
 
     await cb.message.edit_text(
-        "⚙️ Настройки бота\n\n"
+        "⚙️ <b>Настройки бота</b>\n\n"
         "Нажмите на параметр, чтобы изменить его значение. Изменения "
         "применяются сразу, без перезапуска бота.",
         parse_mode='HTML',
@@ -75,7 +75,7 @@ async def settings_intro_comment(cb: CallbackQuery):
         return await cb.answer("🚫 Доступно только супер-администраторам.", show_alert=True)
 
     await cb.message.edit_text(
-        "💬 Первый комментарий под постом\n\n"
+        "💬 <b>Первый комментарий под постом</b>\n\n"
         "Бот автоматически оставляет этот комментарий первым под каждым "
         "новым постом в канале (требуется, чтобы у канала была подключена "
         "группа обсуждений и она же была указана как "
@@ -89,7 +89,7 @@ async def settings_intro_comment(cb: CallbackQuery):
     # значения полей текстом.
     try:
         await cb.message.answer(
-            "👁 Превью:",
+            "👁 <b>Превью:</b>",
             parse_mode='HTML',
         )
         await cb.message.answer(
@@ -124,7 +124,7 @@ async def settings_edit_start(cb: CallbackQuery, state: FSMContext):
         }.get(value_type.__name__, "текст")
 
     await cb.message.edit_text(
-        f"⚙️ {rs.get_label(key)}\n\n"
+        f"⚙️ <b>{rs.get_label(key)}</b>\n\n"
         f"Текущее значение: <code>{rs.display_value(key)}</code>\n\n"
         f"Пришлите новое значение ({type_hint}):",
         parse_mode='HTML',

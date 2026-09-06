@@ -57,51 +57,29 @@ async def admin_stats(cb: CallbackQuery):
     published_today_nsk = await get_published_count_for_date(today_nsk)
 
     text = (
-        f"📊 Статистика бота\n\n"
-        f"👥 Пользователи:\n"
+        f"📊 <b>Статистика бота</b>\n\n"
+        f"👥 <b>Пользователи:</b>\n"
         f"• Всего: {users_count}\n"
         f"• Новые сегодня: {today_users}\n"
         f"• Заблокировано: {banned_count}\n"
         f"• Стоп-слов: {blacklist_count}\n"
         f"• Обязательных подписок: {subscription_count}\n\n"
-        f"📨 Посты:\n"
+        f"📨 <b>Посты:</b>\n"
         f"• Всего: {total_posts}\n"
         f"• Опубликовано: {published_posts}\n"
         f"• В очереди/обрабатывается: {pending_posts}\n"
         f"• Отклонено: {rejected_posts}\n"
         f"• Создано сегодня: {today_posts}\n\n"
-        f"📅 Публикация сегодня (Новосибирск):\n"
+        f"📅 <b>Публикация сегодня (Новосибирск):</b>\n"
         f"• Опубликовано: {published_today_nsk}\n"
         f"• Запланировано: {queued_today}\n"
         f"• Занято слотов: {published_today_nsk + queued_today}\n\n"
-        f"🕐 Время сервера:\n"
+        f"🕐 <b>Время сервера:</b>\n"
         f"{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-        f"🕐 Время Новосибирска:\n"
+        f"🕐 <b>Время Новосибирска:</b>\n"
         f"{datetime.now(TIMEZONE).strftime('%d.%m.%Y %H:%M:%S')}"
     )
     
-    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
-
-# ================== AI СТАТИСТИКА ==================
-@router.callback_query(F.data == "admin_ai_stats")
-async def admin_ai_stats(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
-        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
-    stats = await get_ai_stats(30)
-    reviewed = stats["approved"] + stats["rejected"]
-    fp_rate = (stats["false_positive"] / max(1, stats["auto"])) * 100
-    fn_rate = (stats["false_negative"] / max(1, stats["manual"])) * 100
-    text = (
-        "🤖 ИИ — последние 30 дней\n\n"
-        f"🚀 Авто-кандидатов: {stats['auto']}\n"
-        f"👤 Ручная модерация: {stats['manual']}\n"
-        f"✅ Решений ‘опубликовать’: {stats['approved']}\n"
-        f"❌ Решений ‘отклонить’: {stats['rejected']}\n\n"
-        f"⚠️ Auto → отказ: {stats['false_positive']} ({fp_rate:.1f}%)\n"
-        f"📥 Manual → публикация: {stats['false_negative']} ({fn_rate:.1f}%)\n\n"
-        f"📚 Разобрано человеком: {reviewed}\n"
-        "Решения модераторов используются как feedback для Trust Score и будущей калибровки."
-    )
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
 
 # ================== ЛОГИ ==================
@@ -117,9 +95,9 @@ async def show_admin_logs(cb: CallbackQuery):
         rows = await cur.fetchall()
 
     if not rows:
-        text = "📋 Логи пока отсутствуют"
+        text = "📋 <b>Логи пока отсутствуют</b>"
     else:
-        text_lines = ["📋 Последние 20 логов:\n"]
+        text_lines = ["📋 <b>Последние 20 логов:</b>\n"]
         for action, data, time in rows:
             try:
                 log_time = datetime.fromisoformat(time)
@@ -148,7 +126,7 @@ async def admin_backup_now(cb: CallbackQuery):
         await cb.message.answer_document(
             FSInputFile(path),
             caption=(
-                f"🗄 Резервная копия БД\n"
+                f"🗄 <b>Резервная копия БД</b>\n"
                 f"🕐 {datetime.now(TIMEZONE).strftime('%d.%m.%Y %H:%M:%S')} (Новосибирск)"
             ),
             parse_mode='HTML',

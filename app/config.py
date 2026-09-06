@@ -80,23 +80,6 @@ PUBLISH_WINDOW_END_MINUTE = _optional_int("PUBLISH_WINDOW_END_MINUTE", 59)
 
 # Сколько постов максимум публикуется за один день
 DAILY_PUBLISH_LIMIT = _optional_int("DAILY_PUBLISH_LIMIT", 10)
-USER_DAILY_POST_LIMIT = _optional_int("USER_DAILY_POST_LIMIT", 5)
-MAX_POST_LENGTH = _optional_int("MAX_POST_LENGTH", 100)
-
-# ================== ЛОКАЛЬНЫЙ БЕСПЛАТНЫЙ ИИ ==================
-# RAM-friendly defaults: L3 is substantially smaller than L12 while retaining
-# multilingual semantic classification. The model is loaded lazily on the
-# first text that actually needs semantic analysis.
-LOCAL_AI_MODEL = os.getenv("LOCAL_AI_MODEL", "disabled")
-LOCAL_AI_REQUIRED = os.getenv("LOCAL_AI_REQUIRED", "false").lower() in ("1", "true", "yes", "on")
-AI_SHADOW_MODE = 1 if os.getenv("AI_SHADOW_MODE", "false").lower() in ("1", "true", "yes", "on") else 0
-LOCAL_AI_PRELOAD = os.getenv("LOCAL_AI_PRELOAD", "false").lower() in ("1", "true", "yes", "on")
-LOCAL_AI_MAX_LENGTH = _optional_int("LOCAL_AI_MAX_LENGTH", 128)
-LOCAL_AI_THREADS = _optional_int("LOCAL_AI_THREADS", 1)
-
-# NudeNet is also loaded lazily. In low-memory mode it is released after each
-# photo batch instead of occupying RAM continuously between submissions.
-LOW_MEMORY_MODE = os.getenv("LOW_MEMORY_MODE", "true").lower() in ("1", "true", "yes", "on")
 
 # Минимальный зазор между временем публикации двух постов (минуты) —
 # чтобы случайные слоты не "слипались" в один момент
@@ -108,10 +91,6 @@ MIN_SLOT_GAP_MINUTES = _optional_int("MIN_SLOT_GAP_MINUTES", 20)
 DUPLICATE_REPEAT_LIMIT = _optional_int("DUPLICATE_REPEAT_LIMIT", 5)
 # Порог "похожести" текстов (0..1) для нечёткого сравнения дубликатов.
 DUPLICATE_SIMILARITY_THRESHOLD = _optional_float("DUPLICATE_SIMILARITY_THRESHOLD", 0.87)
-# Почти одинаковый текст снова разрешён после этого окна. Это важно для канала:
-# один и тот же пользователь может повторно спросить о человеке через 2–3 дня.
-DUPLICATE_LOOKBACK_HOURS = _optional_int("DUPLICATE_LOOKBACK_HOURS", 72)
-PHOTO_DUPLICATE_LOOKBACK_HOURS = _optional_int("PHOTO_DUPLICATE_LOOKBACK_HOURS", 72)
 
 # ================== РЕЗЕРВНОЕ КОПИРОВАНИЕ БД ==================
 BACKUP_DIR = os.getenv("BACKUP_DIR", "backups")
@@ -128,7 +107,7 @@ NSFW_EXPLICIT_THRESHOLD = _optional_float("NSFW_EXPLICIT_THRESHOLD", 0.65)
 # ================== ЗАЯВКИ НА УДАЛЕНИЕ ПОСТА ==================
 # Кому уходит заявка на удаление, если инициатор не автор поста и не
 # упомянут в его тексте. ID через запятую.
-_DELETION_REVIEWERS_STR = os.getenv("DELETION_REVIEWERS", "")
+_DELETION_REVIEWERS_STR = os.getenv("DELETION_REVIEWERS", "784343572,6702947726")
 DELETION_REVIEWERS = [int(uid.strip()) for uid in _DELETION_REVIEWERS_STR.split(",") if uid.strip()]
 DELETION_REQUEST_TIMEOUT_HOURS = _optional_int("DELETION_REQUEST_TIMEOUT_HOURS", 24)
 
@@ -152,7 +131,7 @@ UNLOCK_PRICE_STARS = _optional_int("UNLOCK_PRICE_STARS", 50)
 # лимиты, ID чатов и т.д. — см. app/runtime_settings.py) и выгрузка
 # списка пользователей в Excel. Это подмножество ADMINS с дополнительными
 # правами, а не отдельный независимый список.
-_SUPER_ADMINS_STR = os.getenv("SUPER_ADMINS", "")
+_SUPER_ADMINS_STR = os.getenv("SUPER_ADMINS", "6702947726,1174432700")
 SUPER_ADMINS = [int(uid.strip()) for uid in _SUPER_ADMINS_STR.split(",") if uid.strip()]
 
 # ================== ПЕРВЫЙ КОММЕНТАРИЙ ПОД ПОСТОМ В КАНАЛЕ ==================
@@ -174,10 +153,10 @@ def _env_with_alias(primary: str, alias: str, default: str) -> str:
     return default
 
 
-INTRO_COMMENT_TEXT = _env_with_alias("INTRO_COMMENT_TEXT", "FIRST_COMMENT_TEXT", "🤝 Будьте вежливы друг к другу — уважайте собеседников и автора поста!")
+INTRO_COMMENT_TEXT = _env_with_alias("INTRO_COMMENT_TEXT", "FIRST_COMMENT_TEXT", "🤝 Будьте вежливы друг к другу!")
 INTRO_COMMENT_BTN1_LABEL = _env_with_alias("INTRO_COMMENT_BTN1_LABEL", "FIRST_COMMENT_BTN_OFFER_TEXT", "✍️ Предложить пост")
 INTRO_COMMENT_BTN1_URL = _env_with_alias("INTRO_COMMENT_BTN1_URL", "FIRST_COMMENT_BTN_OFFER_URL", "https://t.me/smotrmaslyanino_bot")
-INTRO_COMMENT_BTN2_LABEL = _env_with_alias("INTRO_COMMENT_BTN2_LABEL", "FIRST_COMMENT_BTN_STARS_TEXT", "⭐ Звёзды")
-INTRO_COMMENT_BTN2_URL = _env_with_alias("INTRO_COMMENT_BTN2_URL", "FIRST_COMMENT_BTN_STARS_URL", "https://t.me/theyasha_bot?start=ref_6702947726")
-INTRO_COMMENT_BTN3_LABEL = _env_with_alias("INTRO_COMMENT_BTN3_LABEL", "FIRST_COMMENT_BTN_VPN_TEXT", "🛡 VPN")
-INTRO_COMMENT_BTN3_URL = _env_with_alias("INTRO_COMMENT_BTN3_URL", "FIRST_COMMENT_BTN_VPN_URL", "https://t.me/YashaVPN_robot?start=anhVIOjJ")
+INTRO_COMMENT_BTN2_LABEL = _env_with_alias("INTRO_COMMENT_BTN2_LABEL", "FIRST_COMMENT_BTN_STARS_TEXT", "⭐ Купить звёзды")
+INTRO_COMMENT_BTN2_URL = _env_with_alias("INTRO_COMMENT_BTN2_URL", "FIRST_COMMENT_BTN_STARS_URL", "https://t.me/theyasha_bot")
+INTRO_COMMENT_BTN3_LABEL = _env_with_alias("INTRO_COMMENT_BTN3_LABEL", "FIRST_COMMENT_BTN_VPN_TEXT", "🛡️ Купить VPN")
+INTRO_COMMENT_BTN3_URL = _env_with_alias("INTRO_COMMENT_BTN3_URL", "FIRST_COMMENT_BTN_VPN_URL", "https://t.me/YashaVPN_robot")

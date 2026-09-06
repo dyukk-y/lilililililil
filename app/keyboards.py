@@ -9,7 +9,7 @@ def get_subscription_keyboard(subscriptions_to_show: List[Dict[str, Any]]) -> In
     keyboard = []
 
     for sub in subscriptions_to_show:
-        emoji = "📢" if sub["type"] == "channel" else ("🤖" if sub["type"] == "bot" else "👥")
+        emoji = "📢" if sub["type"] == "channel" else "👥"
         keyboard.append([InlineKeyboardButton(text=f"{emoji} {sub['name']}", url=sub["url"])])
 
     if subscriptions_to_show:
@@ -19,35 +19,18 @@ def get_subscription_keyboard(subscriptions_to_show: List[Dict[str, Any]]) -> In
 
 # ================== KEYBOARDS ==================
 def main_menu():
-    """Главное меню бота."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        # 1-й ряд — одна кнопка
-        [InlineKeyboardButton(text="✍️ Предложить пост", callback_data="offer")],
-
-        # 2-й ряд — две кнопки
+        [InlineKeyboardButton(text="💛 Пожертвовать", callback_data="donate")],
         [
-            InlineKeyboardButton(text="❓ Помощь", callback_data="faq"),
-            InlineKeyboardButton(text="📜 Правила", callback_data="rules"),
+            InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq"),
+            InlineKeyboardButton(text="📜 Правила", callback_data="rules")
         ],
-
-        # 3-й ряд — одна кнопка
-        [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile")],
-
-        # 4-й ряд — две кнопки
+        [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
         [
-            InlineKeyboardButton(text="⭐ Stars", url="https://t.me/theyasha_bot?start=ref_6702947726"),
             InlineKeyboardButton(text="🔒 VPN", url="https://t.me/YashaVPN_robot?start=anhVIOjJ"),
+            InlineKeyboardButton(text="🛒 Магазин звёзд", url="https://t.me/theyasha_bot?start=ref_6702947726")
         ],
-
-        # 5-й ряд — одна кнопка
-        [InlineKeyboardButton(text="📢 Реклама", url="https://t.me/smotrmaslyanino_price")],
-    ])
-
-def profile_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✍️ Предложить пост", callback_data="offer")],
-        [InlineKeyboardButton(text="❓ Как это работает", callback_data="faq")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")],
+        [InlineKeyboardButton(text="📢 Реклама", callback_data="ads")]
     ])
 
 def menu_btn():
@@ -55,14 +38,9 @@ def menu_btn():
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 
-def menu_navigation_keyboard(back_callback: str = "menu"):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data=back_callback)]
-    ])
-
 def cancel_to_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="ad_abort")]
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="menu")]
     ])
 
 def rules_keyboard():
@@ -81,7 +59,7 @@ def faq_keyboard():
         [InlineKeyboardButton(text="🗑️ Удалить запись", callback_data="delete_post_request")],
         [InlineKeyboardButton(text="🔎 Узнать автора", callback_data="author_lookup_start")],
         [InlineKeyboardButton(text="👥 Администрация", callback_data="admins")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu")]
     ])
 
 def admins_keyboard():
@@ -93,9 +71,7 @@ def admins_keyboard():
 def admin_menu(is_super_admin: bool = False):
     keyboard = [
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="🤖 Статистика ИИ", callback_data="admin_ai_stats")],
         [InlineKeyboardButton(text="📅 Очередь публикаций", callback_data="pending_posts")],
-        [InlineKeyboardButton(text="📢 Рекламный пост", callback_data="admin_ad_post")],
         [InlineKeyboardButton(text="🚫 Стоп-слова и баны", callback_data="blacklist")],
         [InlineKeyboardButton(text="🔑 Фразы для автопубликации", callback_data="auto_phrase_list")],
         [InlineKeyboardButton(text="📢 Рассылка", callback_data="broadcast")],
@@ -240,11 +216,11 @@ def ads_keyboard():
     ])
 
 def moderation_keyboard(post_id: int) -> InlineKeyboardMarkup:
-    """Основная клавиатура карточки модерации: действие + диагностика."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Опубликовать сейчас", callback_data=f"pub_{post_id}")],
-        [InlineKeyboardButton(text="❌ Отказать", callback_data=f"rej_{post_id}")],
-        [InlineKeyboardButton(text="🤖 Почему ИИ так решил?", callback_data=f"why_ai_{post_id}")],
+        [
+            InlineKeyboardButton(text="⏩ Опубликовать сейчас", callback_data=f"pub_{post_id}"),
+            InlineKeyboardButton(text="❌ Отказать", callback_data=f"rej_{post_id}")
+        ]
     ])
 
 def disabled_moderation_keyboard(post_id: int, action: str = "published") -> InlineKeyboardMarkup:
@@ -347,42 +323,37 @@ def author_revealed_keyboard() -> InlineKeyboardMarkup:
 
 
 # ================== ПЕРВЫЙ КОММЕНТАРИЙ ПОД ПОСТОМ В КАНАЛЕ ==================
-def _button_label(value: str, fallback: str, max_len: int = 32) -> str:
-    value = (value or "").strip()
-    if not value:
-        return fallback
-    return value if len(value) <= max_len else value[:max_len - 1] + "…"
-
-
 def intro_comment_keyboard(post_id: int = 0, bot_username: str = "") -> InlineKeyboardMarkup:
-    """Компактная и читабельная клавиатура первого комментария."""
+    """Кнопки под автоматическим первым комментарием бота в группе
+    обсуждений. Текст/ссылки первых трёх берутся из runtime_settings
+    (редактируются только супер-администраторами). "Узнать автора" и
+    "Удалить пост" — deep-link кнопки: открывают личный диалог с ботом
+    (https://t.me/<bot>?start=...) и сразу запускают тот же сценарий, что
+    и одноимённые кнопки внутри бота, но уже для конкретного поста —
+    ничего искать/вставлять вручную не нужно (см. handlers/start.py)."""
     from app.runtime_settings import get as get_setting
-    b1 = InlineKeyboardButton(
-        text=_button_label(get_setting("INTRO_COMMENT_BTN1_LABEL"), "✍️ Предложить"),
-        url=get_setting("INTRO_COMMENT_BTN1_URL"),
-    )
-    b2 = InlineKeyboardButton(
-        text=_button_label(get_setting("INTRO_COMMENT_BTN2_LABEL"), "⭐ Звёзды"),
-        url=get_setting("INTRO_COMMENT_BTN2_URL"),
-    )
-    b3 = InlineKeyboardButton(
-        text=_button_label(get_setting("INTRO_COMMENT_BTN3_LABEL"), "🛡 VPN"),
-        url=get_setting("INTRO_COMMENT_BTN3_URL"),
-    )
-    keyboard = [[b1, b2], [b3]]
+    keyboard = [
+        [InlineKeyboardButton(
+            text=get_setting("INTRO_COMMENT_BTN1_LABEL"),
+            url=get_setting("INTRO_COMMENT_BTN1_URL"),
+        )],
+        [
+            InlineKeyboardButton(
+                text=get_setting("INTRO_COMMENT_BTN2_LABEL"),
+                url=get_setting("INTRO_COMMENT_BTN2_URL"),
+            ),
+            InlineKeyboardButton(
+                text=get_setting("INTRO_COMMENT_BTN3_LABEL"),
+                url=get_setting("INTRO_COMMENT_BTN3_URL"),
+            ),
+        ],
+    ]
     if bot_username:
         keyboard.append([
-            InlineKeyboardButton(text="🔎 Автор", url=f"https://t.me/{bot_username}?start=author_{post_id}"),
-            InlineKeyboardButton(text="🗑 Удалить", url=f"https://t.me/{bot_username}?start=delete_{post_id}"),
+            InlineKeyboardButton(text="🔎 Узнать автора", url=f"https://t.me/{bot_username}?start=author_{post_id}"),
+            InlineKeyboardButton(text="🗑 Удалить пост", url=f"https://t.me/{bot_username}?start=delete_{post_id}"),
         ])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-
-def priority_admin_keyboard(post_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Опубликовать сейчас", callback_data=f"priority_pub_{post_id}")],
-        [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"priority_rej_{post_id}")],
-    ])
 
 
 # ================== УСКОРЕНИЕ ПРОВЕРКИ ПОСТА ==================
@@ -390,103 +361,3 @@ def priority_boost_keyboard(post_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚡ Ускорить проверку", callback_data=f"priority_boost_{post_id}")]
     ])
-
-
-# ================== РЕКЛАМНЫЕ ПОСТЫ ==================
-def advertising_type_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Пост", callback_data="ad_type:post")],
-        [InlineKeyboardButton(text="🎁 Комбо", callback_data="ad_type:combo")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="ad_abort")],
-    ])
-
-
-def advertising_type_back_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ К выбору типа", callback_data="ad_type_back")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="ad_abort")],
-    ])
-
-
-def advertising_subscription_back_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ К выбору комбо", callback_data=f"ad_subscription_back:{ad_id}")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-def advertising_broadcast_back_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Назад", callback_data=f"ad_broadcast_back:{ad_id}")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-def advertising_broadcast_confirm_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Всё верно", callback_data=f"ad_broadcast_confirm:{ad_id}")],
-        [InlineKeyboardButton(text="↩️ Изменить расписание", callback_data=f"ad_broadcast_back:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-def advertising_duration_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="24 часа", callback_data=f"ad_duration:{ad_id}:24"),
-         InlineKeyboardButton(text="48 часов", callback_data=f"ad_duration:{ad_id}:48")],
-        [InlineKeyboardButton(text="72 часа", callback_data=f"ad_duration:{ad_id}:72"),
-         InlineKeyboardButton(text="Неделя", callback_data=f"ad_duration:{ad_id}:168")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="↩️ К выбору типа", callback_data="ad_type_back")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-
-def advertising_pin_keyboard(ad_id: int, duration_hours: int) -> InlineKeyboardMarkup:
-    options = []
-    for hours, label in ((24, "24 часа"), (48, "48 часов"), (72, "72 часа"), (168, "На неделю")):
-        if hours <= duration_hours:
-            options.append(InlineKeyboardButton(text=label, callback_data=f"ad_pin:{ad_id}:{hours}"))
-    keyboard = [options[i:i+2] for i in range(0, len(options), 2)]
-    keyboard.append([InlineKeyboardButton(text="🚫 Не нужен", callback_data=f"ad_pin:{ad_id}:0")])
-    keyboard.append([InlineKeyboardButton(text="↩️ Вернуться к сроку публикации", callback_data=f"ad_pin_back:{ad_id}")])
-    keyboard.append([InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")])
-    keyboard.append([InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")])
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-
-def advertising_combo_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="24 часа", callback_data=f"ad_combo:{ad_id}:24"),
-         InlineKeyboardButton(text="48 часов", callback_data=f"ad_combo:{ad_id}:48")],
-        [InlineKeyboardButton(text="72 часа", callback_data=f"ad_combo:{ad_id}:72"),
-         InlineKeyboardButton(text="Неделя", callback_data=f"ad_combo:{ad_id}:week")],
-        [InlineKeyboardButton(text="Неделя+", callback_data=f"ad_combo:{ad_id}:week_plus")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="↩️ К выбору типа", callback_data="ad_type_back")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-
-def advertising_confirm_keyboard(ad_id: int, ad_type: str = "post") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Опубликовать", callback_data=f"ad_confirm:{ad_id}")],
-        [InlineKeyboardButton(text="↩️ Назад", callback_data=f"ad_confirm_back:{ad_id}:{ad_type}")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-
-def advertising_retry_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"ad_retry:{ad_id}")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-
-def advertising_done_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Удалить сейчас", callback_data=f"ad_delete_now:{ad_id}")],
-        [InlineKeyboardButton(text="📍 Снять закреп сейчас", callback_data=f"ad_unpin_now:{ad_id}")],
-    ])
-

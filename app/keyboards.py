@@ -35,7 +35,7 @@ def main_menu():
 
 def profile_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❤️ Пожертвовать", callback_data="donate")],
+        [InlineKeyboardButton(text="💛 Пожертвовать", callback_data="donate")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 
@@ -237,14 +237,18 @@ def moderation_keyboard(post_id: int) -> InlineKeyboardMarkup:
     ])
 
 def disabled_moderation_keyboard(post_id: int, action: str = "published") -> InlineKeyboardMarkup:
+    """Финальный результат модерации вместо кнопок принятия решения.
+
+    Кнопка остаётся кликабельной: она показывает, кто принял решение,
+    поэтому модератор видит результат и может открыть его детали.
+    """
     if action == "published":
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Опубликовано", callback_data="disabled")]
+            [InlineKeyboardButton(text="✅ Опубликовано", callback_data=f"who_pub_{post_id}")]
         ])
-    else:
-        return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отклонено", callback_data="disabled")]
-        ])
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отказано", callback_data=f"who_rej_{post_id}")]
+    ])
 
 def back_to_previous():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -358,7 +362,7 @@ def intro_comment_keyboard(post_id: int = 0, bot_username: str = "") -> InlineKe
         text=_button_label(get_setting("INTRO_COMMENT_BTN3_LABEL"), "🛡 VPN"),
         url=get_setting("INTRO_COMMENT_BTN3_URL"),
     )
-    keyboard = [[b2, b3], [b1]]
+    keyboard = [[b1, b2], [b3]]
     if bot_username:
         keyboard.append([
             InlineKeyboardButton(text="🔎 Автор", url=f"https://t.me/{bot_username}?start=author_{post_id}"),

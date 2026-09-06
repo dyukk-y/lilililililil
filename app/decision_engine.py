@@ -27,9 +27,28 @@ async def evaluate(text: str, trust: float = 0.0, has_trigger: bool = False, med
         positive = ai.positive_similarity > ai.negative_similarity + 0.055
         negative = ai.negative_similarity > ai.positive_similarity + 0.10
         confidence = max(0.0, min(1.0, 0.55 * ai.confidence + 0.45 * (max(0, combined) / 100)))
+
+        # Ключевая фраза — только кандидат на автопубликацию, а не безусловный
+        # пропуск. Смотрим на весь контекст: если одновременно нет признаков
+        # нежелательного объявления/услуги/поиска вещей и ИИ не видит
+        # отрицательного намерения, такой пост можно пропустить даже при новой
+        # формулировке, которой ещё нет в эвристических шаблонах.
+        contextual_trigger = (
+            has_trigger
+            and media_ok
+            and heuristic.score >= 15
+            and not any(reason.lstrip().startswith("-") for reason in heuristic.reasons)
+            and ai.negative_similarity < 0.45
+            and not negative
+            and len((text or '').strip()) >= 12
+        )
+
         if negative:
             decision = "manual"
             reason = "ИИ видит нежелательное намерение"
+        elif contextual_trigger and (positive or combined >= 30 or ai.confidence >= 0.55):
+            decision = "auto"
+            reason = "ключевая фраза подтверждена безопасным контекстом"
         elif combined >= 58 and positive and media_ok and confidence >= 0.68:
             decision = "auto"
             reason = "высокая совокупная уверенность"

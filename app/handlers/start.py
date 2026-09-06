@@ -89,10 +89,7 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         return
 
     await msg.answer(
-        "Привет! 👋\n"
-        "Предложи запись для размещения в канале.\n\n"
-        "⚠️ Важное правило:\n"
-        "Каждый пост должен содержать эмодзи 🧑 или 👩\n\n"
+        "Привет! 👋\n\n"
         "Выбери действие:",
         parse_mode='HTML',
         reply_markup=main_menu()

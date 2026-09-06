@@ -132,22 +132,12 @@ async def notify_admins_outcome(post_id: int, status: str, reason: Optional[str]
 
             text, photo, user_id, username, moderator_id = row
 
-            mod_username = None
-            if moderator_id == 0:
-                mod_username = "🤖 автоматически (по расписанию)"
-            elif moderator_id:
-                cur2 = await db.execute("SELECT username FROM users WHERE user_id=?", (moderator_id,))
-                mod_row = await cur2.fetchone()
-                mod_username = f"@{mod_row[0]}" if mod_row and mod_row[0] else "неизвестно"
-
             if status == "published":
                 header = f"✅ <b>Пост #{post_id} опубликован</b>"
-                action_text = "👤 <b>Опубликовал:</b>"
                 button_text = "👤 Кто опубликовал"
                 callback_data = f"who_pub_{post_id}"
             elif status == "rejected":
                 header = f"❌ <b>Пост #{post_id} отклонён</b>"
-                action_text = "👤 <b>Отклонил:</b>"
                 button_text = "👤 Кто отклонил"
                 callback_data = f"who_rej_{post_id}"
             else:
@@ -157,8 +147,7 @@ async def notify_admins_outcome(post_id: int, status: str, reason: Optional[str]
                 f"{header}\n\n"
                 f"📄 <b>Текст:</b>\n{escape(text or '')}\n\n"
                 f"👤 <b>Автор:</b> @{escape(username or 'без username')}\n"
-                f"🆔 <b>ID автора:</b> <code>{user_id}</code>\n"
-                f"{action_text} {mod_username or 'неизвестно'}"
+                f"🆔 <b>ID автора:</b> <code>{user_id}</code>"
             )
 
             if status == "rejected" and reason:
@@ -343,14 +332,14 @@ async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
         formatted_time = scheduled_time.strftime("%d.%m.%Y %H:%M")
         header = (
             f"🤖 <b>ПОСТ #{post_id} · ГОТОВ К ПУБЛИКАЦИИ</b>\n"
-            f"<blockquote>🕐 <b>По расписанию:</b> {formatted_time} (Новосибирск)</blockquote>\n"
+            f"🕐 <b>По расписанию:</b> {formatted_time} (Новосибирск)\n"
         )
     else:
         timeout_hours = get_setting("MODERATION_TIMEOUT_HOURS")
         header = (
             f"🔎 <b>ПОСТ #{post_id} · НУЖНО РЕШЕНИЕ</b>\n"
-            f"<blockquote>⏳ Автоотклонение через <b>{timeout_hours} ч.</b>\n"
-            f"Причина ручной проверки: <b>{escape(manual_reason or 'дополнительная проверка')}</b></blockquote>\n"
+            f"<b>⏳ Автоотклонение через {timeout_hours} ч.</b>\n"
+            f"<b>Причина ручной проверки:</b> {escape(manual_reason or 'дополнительная проверка')}\n"
         )
 
     if ai_score is not None:
@@ -361,19 +350,19 @@ async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
         else:
             ai_badge = "🔴 Низкая"
         ai_block = (
-            f"<blockquote>🤖 <b>Проверка ИИ</b>\n"
-            f"Оценка: <b>{float(ai_score):.0f}/100</b> · Уверенность: <b>{float(ai_conf or 0):.0%}</b>\n"
-            f"Надёжность: <b>{ai_badge}</b>\n"
-            f"Решение: <b>{'автоматически' if ai_decision == 'auto' else 'ручная проверка'}</b></blockquote>\n"
+            f"🤖 <b>Проверка ИИ</b>\n"
+            f"<b>Оценка:</b> {float(ai_score):.0f}/100 · <b>Уверенность:</b> {float(ai_conf or 0):.0%}\n"
+            f"<b>Надёжность:</b> {ai_badge}\n"
+            f"<b>Решение:</b> {'автоматически' if ai_decision == 'auto' else 'ручная проверка'}\n\n"
         )
     else:
-        ai_block = "<blockquote>🤖 <b>Проверка ИИ</b> · анализ ещё не сохранён</blockquote>\n"
+        ai_block = "🤖 <b>Проверка ИИ</b> — анализ ещё не сохранён\n\n"
 
-    mod_text = f"{header}{ai_block}<blockquote>📝 <b>Текст публикации</b>\n{escape(text or 'Без текста')}</blockquote>"
+    mod_text = f"{header}{ai_block}📝 <b>Текст публикации</b>\n{escape(text or 'Без текста')}"
     if ocr_text:
-        mod_text += f"\n<blockquote>🔤 <b>Текст на фото</b>\n{escape(ocr_text[:700])}</blockquote>"
+        mod_text += f"\n\n🔤 <b>Текст на фото</b>\n{escape(ocr_text[:700])}"
     if ai_reason:
-        mod_text += f"\n<blockquote>💡 <b>Комментарий ИИ</b>\n{escape(ai_reason[:700])}</blockquote>"
+        mod_text += f"\n\n💡 <b>Комментарий ИИ</b>\n{escape(ai_reason[:700])}"
 
     async def _send(chat_id: int, topic_id: int, keyboard, review_text: str):
         if not chat_id:

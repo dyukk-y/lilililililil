@@ -181,15 +181,7 @@ async def reject(cb: CallbackQuery, state: FSMContext):
             return await cb.answer("Пост не найден", show_alert=True)
         
         post_text, photo = row
-        # Сохраняем исходную HTML-разметку Telegram-сообщения.
-        # .caption/.text содержат только сырой текст без entities, поэтому
-        # повторное edit_message_* с parse_mode=HTML раньше уничтожало
-        # жирный/курсивный/ссылочный текст после решения модератора.
-        original_text = (
-            getattr(cb.message, "html_caption", None)
-            if photo
-            else getattr(cb.message, "html_text", None)
-        )
+        original_text = cb.message.caption if photo else cb.message.text
         if not original_text:
             original_text = f"Пост #{pid}\n\n{post_text}"
 

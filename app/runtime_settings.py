@@ -59,9 +59,14 @@ SETTINGS_SCHEMA: Dict[str, Tuple[type, str]] = {
     "PUBLISH_WINDOW_END_HOUR": (int, "Конец окна публикации (час, 0-23)"),
     "PUBLISH_WINDOW_END_MINUTE": (int, "Конец окна публикации (минута, 0-59)"),
     "DAILY_PUBLISH_LIMIT": (int, "Лимит публикаций в день"),
+    "USER_DAILY_POST_LIMIT": (int, "Лимит постов пользователя в день"),
+    "MAX_POST_LENGTH": (int, "Максимальная длина поста"),
     "MIN_SLOT_GAP_MINUTES": (int, "Мин. зазор между публикациями, мин"),
     "DUPLICATE_REPEAT_LIMIT": (int, "Порог повторов для автоотказа"),
     "DUPLICATE_SIMILARITY_THRESHOLD": (float, "Порог схожести текста (0-1)"),
+    "DUPLICATE_LOOKBACK_HOURS": (int, "Окно проверки повторов, ч"),
+    "PHOTO_DUPLICATE_LOOKBACK_HOURS": (int, "Окно проверки повторов фото, ч"),
+    "AI_SHADOW_MODE": (int, "Теневой режим ИИ (0/1)"),
     "NSFW_EXPLICIT_THRESHOLD": (float, "Порог NSFW-фильтра фото (0-1)"),
     "DELETION_REQUEST_TIMEOUT_HOURS": (int, "Срок ответа на заявку удаления, ч"),
     "MODERATION_TIMEOUT_HOURS": (int, "Срок ручной модерации поста, ч"),
@@ -124,11 +129,25 @@ async def load_settings() -> None:
         rows = {row[0]: row[1] for row in await cur.fetchall()}
 
         for key in SETTINGS_SCHEMA:
-            if key in rows:
+            # ADMINS — критическая настройка доступа. Если список явно задан
+            # в .env, он является источником истины при старте. Иначе старая
+            # версия могла оставить в SQLite прежний список администраторов,
+            # из-за чего новые админы из .env получали "нет доступа".
+            # После загрузки актуальный список синхронизируется обратно в БД.
+            if key == "ADMINS" and str(getattr(_cfg, "_ADMINS_STR", "")).strip():
+                value = _default_from_config(key)
+                await db.execute(
+                    "INSERT OR REPLACE INTO settings(key, value, updated_time) VALUES(?,?,?)",
+                    (key, _serialize(key, value), str(datetime.now())),
+                )
+            elif key in rows:
                 try:
                     value = _deserialize(key, rows[key])
                 except (ValueError, TypeError):
-                    logger.warning(f"Не удалось прочитать настройку {key}='{rows[key]}' из БД, беру значение из .env")
+                    logger.warning(
+                        "Не удалось прочитать настройку %s=%r из БД, беру значение из .env",
+                        key, rows[key],
+                    )
                     value = _default_from_config(key)
             else:
                 value = _default_from_config(key)
@@ -146,7 +165,7 @@ async def load_settings() -> None:
                 SETTINGS[key] = value
 
         await db.commit()
-    logger.info(f"Загружено {len(SETTINGS)} динамических настроек")
+    logger.info("Загружено %s динамических настроек", len(SETTINGS))
 
 
 def get(key: str) -> Any:
@@ -172,11 +191,57 @@ async def set_value(key: str, raw_value: str) -> Tuple[bool, str]:
         type_hint = {"int": "целое число", "float": "число", "list": "ID через запятую"}.get(value_type.__name__, "текст")
         return False, f"Неверный формат. Ожидается: {type_hint}"
 
+    # Жёсткие диапазоны защищают scheduler, платежи и модерацию от
+    # логически невозможных значений.
+    ranges = {
+        "PUBLISH_WINDOW_START_HOUR": (0, 23),
+        "PUBLISH_WINDOW_END_HOUR": (0, 23),
+        "PUBLISH_WINDOW_END_MINUTE": (0, 59),
+        "DAILY_PUBLISH_LIMIT": (1, 10000),
+        "USER_DAILY_POST_LIMIT": (1, 100),
+        "MAX_POST_LENGTH": (5, 4096),
+        "MIN_SLOT_GAP_MINUTES": (0, 1440),
+        "DUPLICATE_REPEAT_LIMIT": (1, 100),
+        "DUPLICATE_SIMILARITY_THRESHOLD": (0.0, 1.0),
+        "DUPLICATE_LOOKBACK_HOURS": (1, 720),
+        "PHOTO_DUPLICATE_LOOKBACK_HOURS": (1, 720),
+        "AI_SHADOW_MODE": (0, 1),
+        "NSFW_EXPLICIT_THRESHOLD": (0.0, 1.0),
+        "DELETION_REQUEST_TIMEOUT_HOURS": (1, 720),
+        "MODERATION_TIMEOUT_HOURS": (1, 720),
+        "AUTHOR_LOOKUP_PRICE_STARS": (1, 1_000_000),
+        "PRIORITY_BOOST_PRICE_STARS": (1, 1_000_000),
+        "UNLOCK_PRICE_STARS": (1, 1_000_000),
+        "BACKUP_INTERVAL_MINUTES": (1, 10080),
+        "BACKUP_KEEP_LAST": (1, 1000),
+    }
+    if key in ranges:
+        lo, hi = ranges[key]
+        if not (lo <= parsed <= hi):
+            return False, f"Значение должно быть от {lo} до {hi}"
+
     if key.endswith("_URL") and not (parsed.startswith("https://") or parsed.startswith("http://")):
         return False, "Ссылка должна начинаться с https:// (или http://)"
 
     if (key.endswith("_LABEL") or key.endswith("_TEXT")) and not parsed:
         return False, "Текст не может быть пустым"
+    if key.endswith("_LABEL") and len(parsed) > 32:
+        return False, "Текст кнопки слишком длинный — максимум 32 символа, чтобы он полностью помещался"
+
+    if key in ("PUBLISH_WINDOW_START_HOUR", "PUBLISH_WINDOW_END_HOUR", "PUBLISH_WINDOW_END_MINUTE"):
+        start_hour = parsed if key == "PUBLISH_WINDOW_START_HOUR" else get("PUBLISH_WINDOW_START_HOUR")
+        end_hour = parsed if key == "PUBLISH_WINDOW_END_HOUR" else get("PUBLISH_WINDOW_END_HOUR")
+        end_minute = parsed if key == "PUBLISH_WINDOW_END_MINUTE" else get("PUBLISH_WINDOW_END_MINUTE")
+        if start_hour == end_hour and end_minute == 0:
+            return False, "Окно публикации не может иметь нулевую длительность"
+
+    if key in ("PUBLISH_WINDOW_START_HOUR", "PUBLISH_WINDOW_END_HOUR", "PUBLISH_WINDOW_END_MINUTE"):
+        start_hour = parsed if key == "PUBLISH_WINDOW_START_HOUR" else get("PUBLISH_WINDOW_START_HOUR")
+        end_hour = parsed if key == "PUBLISH_WINDOW_END_HOUR" else get("PUBLISH_WINDOW_END_HOUR")
+        end_minute = parsed if key == "PUBLISH_WINDOW_END_MINUTE" else get("PUBLISH_WINDOW_END_MINUTE")
+        # Ночное окно вроде 23:00→08:00 поддерживается scheduler'ом.
+        if start_hour == end_hour and end_minute == 0:
+            return False, "Окно публикации не может иметь нулевую длительность"
 
     if key in _INPLACE_LIST_TARGETS:
         target = _INPLACE_LIST_TARGETS[key]()

@@ -1,58 +1,51 @@
-# Production deployment checklist
+# Деплой на Bothost
 
-## 1. Configure secrets
+Проект подготовлен для запуска через GitHub на Bothost. Бот работает через Telegram polling, отдельный HTTP-порт не нужен.
 
-Copy `.env.example` to `.env` and fill in at minimum:
+## 1. GitHub
 
-- `BOT_TOKEN`
-- `MAIN_CHANNEL_ID`
-- `ADMINS`
-- `SUPER_ADMINS` (recommended)
-- chat/topic IDs used by moderation and admin notifications
+Загрузите содержимое этого проекта в корень репозитория GitHub. Главный файл: `main.py`.
 
-Never commit `.env`, the SQLite database, logs, or backups.
+## 2. Bothost
 
-## 2. Native Linux deployment
+При создании/редактировании бота укажите:
 
-```bash
-python3.11 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-sudo apt-get install tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng
-python main.py
-```
+- Git URL: ваш репозиторий
+- Ветка: `main` (или ваша рабочая ветка)
+- Главный файл: `main.py`
+- Dockerfile: включить использование кастомного `Dockerfile`
 
-The default text classifier is lightweight and local; it does not download a transformer model and uses negligible RAM.
+Bothost поддерживает кастомный Dockerfile и переменные окружения.
 
-## 3. Docker
+## 3. Переменные окружения
 
-```bash
-docker build -t smotrbot .
-docker run --env-file .env -v ./data:/app/data -v ./backups:/app/backups smotrbot
-```
+В панели Bothost добавьте минимум:
 
-For Docker, set `DB_NAME=/app/data/smotrbot.db` in `.env` so the database is on the mounted volume.
+- `BOT_TOKEN` — токен Telegram-бота
+- `MAIN_CHANNEL_ID` — ID канала публикации
+- `ADMINS` — Telegram ID администраторов через запятую
 
-## 4. Telegram permissions
+Также добавьте остальные нужные ID из `.env.example`: `COMMENTS_CHAT_ID`, `MODERATORS_CHAT_ID`, `MODERATORS_TOPIC_ID`, `ADMINS_CHAT_ID`, `ADMINS_TOPIC_ID`, `SUPER_ADMINS`, `DELETION_REVIEWERS` и т.д.
 
-The bot needs the permissions required by the enabled features: access to the moderation/admin chats, publication rights in the target channel, and access to the discussion chat if comments are enabled.
+Важно: секреты не нужно хранить в GitHub. Bothost передаёт переменные окружения контейнеру.
 
-## 5. First launch
+## 4. SQLite и сохранение данных
 
-Watch the logs for:
+База по умолчанию: `/app/data/smotrbot.db`. Резервные копии: `/app/data/backups`. Лог: `/app/data/bot.log`.
 
-- database initialization;
-- local AI availability;
-- OCR/Tesseract availability when photos are enabled;
-- successful polling start.
+Bothost рекомендует хранить постоянные данные бота в `/app/data`, чтобы они сохранялись между обновлениями. Не меняйте `DB_NAME` на путь вне `/app/data`.
 
-Send a test post and verify the complete flow: moderation → publication → first comment → deletion request.
+## 5. После деплоя
 
-## Экономия RAM
+Откройте логи Bothost. Нормальный запуск заканчивается сообщением вроде `Бот запущен и готов к работе`, после чего начинается polling.
 
-По умолчанию включён `LOW_MEMORY_MODE=true`: NudeNet загружается только на время
-проверки фото и освобождается после анализа. Локальный ИИ загружается лениво,
-а не при старте, и по умолчанию используется компактная
-`LOCAL_AI_MODEL=disabled` используется по умолчанию. `LOCAL_AI_PRELOAD=false` оставляйте на
-небольшом VPS. Одновременные AI-инференсы сериализованы, чтобы несколько
-пользователей не создавали большой пик памяти.
+Если меняете переменные окружения, сохраните их и выполните новый деплой/пересоздание контейнера.
+
+## 6. Важное для админов
+
+`ADMINS` берётся из переменных окружения при запуске. Если в Bothost указано, например:
+
+`ADMINS=123456789,987654321`
+
+оба пользователя получают доступ к `/admin`.
+

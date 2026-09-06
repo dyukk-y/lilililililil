@@ -111,7 +111,7 @@ async def profile(cb: CallbackQuery):
         f"<blockquote>Рейтинг доверия: {trust:+.1f}\n"
         "Чем аккуратнее публикации, тем выше доверие системы.</blockquote>"
     )
-    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=menu_btn())
+    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=profile_keyboard())
 
 # ================== FAQ / ADS ==================
 @router.callback_query(F.data == "faq")

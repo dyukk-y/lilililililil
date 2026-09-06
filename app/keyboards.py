@@ -20,7 +20,7 @@ def get_subscription_keyboard(subscriptions_to_show: List[Dict[str, Any]]) -> In
 # ================== KEYBOARDS ==================
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💛 Пожертвовать", callback_data="donate")],
+        [InlineKeyboardButton(text="✍️ Предложить пост", callback_data="offer")],
         [
             InlineKeyboardButton(text="❓ Частые вопросы", callback_data="faq"),
             InlineKeyboardButton(text="📜 Правила", callback_data="rules")
@@ -35,6 +35,12 @@ def main_menu():
 
 def menu_btn():
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
+    ])
+
+def profile_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💛 Пожертвовать", callback_data="donate")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 

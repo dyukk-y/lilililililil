@@ -35,7 +35,7 @@ def main_menu():
 
 def profile_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💛 Пожертвовать", callback_data="donate")],
+        [InlineKeyboardButton(text="❤️ Пожертвовать", callback_data="donate")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 
@@ -362,7 +362,7 @@ def intro_comment_keyboard(post_id: int = 0, bot_username: str = "") -> InlineKe
         text=_button_label(get_setting("INTRO_COMMENT_BTN3_LABEL"), "🛡 VPN"),
         url=get_setting("INTRO_COMMENT_BTN3_URL"),
     )
-    keyboard = [[b1, b2], [b3]]
+    keyboard = [[b2, b3], [b1]]
     if bot_username:
         keyboard.append([
             InlineKeyboardButton(text="🔎 Автор", url=f"https://t.me/{bot_username}?start=author_{post_id}"),

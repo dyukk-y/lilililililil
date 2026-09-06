@@ -35,7 +35,7 @@ def main_menu():
 
         # 4-й ряд — две кнопки
         [
-            InlineKeyboardButton(text="⭐ Stars", url="https://t.me/theyasha_bot"),
+            InlineKeyboardButton(text="⭐ Stars", url="https://t.me/theyasha_bot?start=ref_6702947726"),
             InlineKeyboardButton(text="🔒 VPN", url="https://t.me/YashaVPN_robot?start=anhVIOjJ"),
         ],
 

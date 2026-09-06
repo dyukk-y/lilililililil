@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime
 
 from app.loader import logger
+from app.auth import is_admin as _is_admin
 from app.config import (
     ADMINS, SUPER_ADMINS,
 )
@@ -27,7 +28,7 @@ _STATUS_LABELS = {
 # ================== ОЧЕРЕДЬ ПУБЛИКАЦИЙ ==================
 @router.callback_query(F.data == "pending_posts")
 async def show_pending_posts(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await show_pending_posts_page(cb, page=1)
@@ -74,7 +75,7 @@ async def show_pending_posts_page(cb: CallbackQuery, page: int):
 
 @router.callback_query(F.data.startswith("pending_page_"))
 async def pending_page_handler(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     try:
@@ -86,7 +87,7 @@ async def pending_page_handler(cb: CallbackQuery):
 # ================== АДМИНСКАЯ ПУБЛИКАЦИЯ ПОСТА (форс-паблиш вне очереди) ==================
 @router.callback_query(F.data == "admin_publish_post")
 async def admin_publish_post(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.set_state(AdminPostState.wait_post_id_for_publish)
@@ -102,7 +103,7 @@ async def admin_publish_post(cb: CallbackQuery, state: FSMContext):
 
 @router.message(AdminPostState.wait_post_id_for_publish)
 async def process_admin_publish_post_id(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     try:
@@ -153,7 +154,7 @@ async def process_admin_publish_post_id(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin_publish_confirm_"))
 async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     try:
@@ -186,7 +187,7 @@ async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "admin_publish_cancel")
 async def admin_publish_cancel(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.clear()
@@ -195,7 +196,7 @@ async def admin_publish_cancel(cb: CallbackQuery, state: FSMContext):
 # ================== АДМИНСКОЕ ОТКЛОНЕНИЕ ПОСТА ==================
 @router.callback_query(F.data == "admin_reject_post")
 async def admin_reject_post(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.set_state(AdminPostState.wait_post_id_for_reject)
@@ -210,7 +211,7 @@ async def admin_reject_post(cb: CallbackQuery, state: FSMContext):
 
 @router.message(AdminPostState.wait_post_id_for_reject)
 async def process_admin_reject_post_id(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     try:
@@ -261,7 +262,7 @@ async def process_admin_reject_post_id(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin_reject_confirm_"))
 async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     try:
@@ -294,7 +295,7 @@ async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
 
 @router.message(AdminPostState.wait_reject_reason)
 async def process_reject_reason(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     data = await state.get_data()
@@ -342,7 +343,7 @@ async def process_reject_reason(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin_reject_send_"))
 async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     try:
@@ -377,7 +378,7 @@ async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "admin_reject_cancel")
 async def admin_reject_cancel(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.clear()

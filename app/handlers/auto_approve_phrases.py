@@ -4,6 +4,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
+from app.auth import is_admin as _is_admin
 from app.config import ADMINS
 from app.database import (
     get_auto_approve_phrases, add_auto_approve_phrase, remove_auto_approve_phrase, log,
@@ -16,7 +17,7 @@ router = Router()
 
 @router.callback_query(F.data == "auto_phrase_list")
 async def auto_phrase_list(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     await show_auto_phrase_page(cb, page=1)
 
@@ -46,7 +47,7 @@ async def show_auto_phrase_page(cb: CallbackQuery, page: int):
 
 @router.callback_query(F.data.startswith("auto_phrase_page_"))
 async def auto_phrase_page_handler(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     try:
         page = int(cb.data.split("_")[3])
@@ -57,7 +58,7 @@ async def auto_phrase_page_handler(cb: CallbackQuery):
 
 @router.callback_query(F.data == "add_auto_phrase")
 async def add_auto_phrase_start(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
 
     await state.set_state(AutoPhraseState.wait_phrase)
@@ -73,7 +74,7 @@ async def add_auto_phrase_start(cb: CallbackQuery, state: FSMContext):
 
 @router.message(AutoPhraseState.wait_phrase)
 async def process_add_auto_phrase(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
 
     phrase = msg.text.strip()
@@ -100,7 +101,7 @@ async def process_add_auto_phrase(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == "remove_auto_phrase")
 async def remove_auto_phrase_start(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
 
     phrases, _ = await get_auto_approve_phrases(page=1, per_page=100)
@@ -125,7 +126,7 @@ async def remove_auto_phrase_start(cb: CallbackQuery):
 
 @router.callback_query(F.data.startswith("rm_auto_phrase_"))
 async def process_remove_auto_phrase(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
 
     try:

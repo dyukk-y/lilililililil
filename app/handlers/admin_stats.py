@@ -5,6 +5,7 @@ from datetime import datetime
 
 import aiosqlite
 
+from app.auth import is_admin as _is_admin
 from app.config import (
     ADMINS, SUPER_ADMINS, DB_NAME, REQUIRED_SUBSCRIPTIONS, TIMEZONE,
 )
@@ -22,7 +23,7 @@ router = Router()
 # ================== АДМИНСКАЯ СТАТИСТИКА ==================
 @router.callback_query(F.data == "admin_stats")
 async def admin_stats(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     users_count = await get_users_count()
@@ -85,7 +86,7 @@ async def admin_stats(cb: CallbackQuery):
 # ================== ЛОГИ ==================
 @router.callback_query(F.data == "admin_logs")
 async def show_admin_logs(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     async with aiosqlite.connect(DB_NAME) as db:
@@ -116,7 +117,7 @@ async def show_admin_logs(cb: CallbackQuery):
 # ================== РЕЗЕРВНОЕ КОПИРОВАНИЕ ==================
 @router.callback_query(F.data == "admin_backup_now")
 async def admin_backup_now(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await cb.answer("⏳ Создаю резервную копию...")

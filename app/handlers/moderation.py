@@ -70,7 +70,7 @@ async def who_rejected(cb: CallbackQuery):
     await cb.answer(text, show_alert=True)
 
 # ================== ПУБЛИКАЦИЯ (одним кликом, без лишнего второго подтверждения) ==================
-@router.callback_query(F.data.startswith("pub_"))
+@router.callback_query(F.data.regexp(r"^pub_\d+$"))
 async def confirm_pub(cb: CallbackQuery):
     # Действие разрешено только из чата модераторов — это единственное
     # место, где показываются кнопки решения. Чат администраторов теперь

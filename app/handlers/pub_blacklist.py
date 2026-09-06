@@ -5,6 +5,7 @@ from datetime import datetime
 
 import aiosqlite
 
+from app.auth import is_admin as _is_admin
 from app.config import (
     ADMINS, DB_NAME,
 )
@@ -19,7 +20,7 @@ router = Router()
 # ================== ЧЕРНЫЙ СПИСОК ПУБЛИКАЦИЙ ==================
 @router.callback_query(F.data == "pub_blacklist")
 async def show_pub_blacklist(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await show_pub_blacklist_page(cb, page=1)
@@ -75,7 +76,7 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
 
 @router.callback_query(F.data.startswith("pubblack_page_"))
 async def pubblack_page_handler(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     try:
@@ -87,7 +88,7 @@ async def pubblack_page_handler(cb: CallbackQuery):
 # ================== ДОБАВЛЕНИЕ В ЧЕРНЫЙ СПИСОК ==================
 @router.callback_query(F.data == "add_pub_blacklist")
 async def add_pub_blacklist(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.set_state(BlacklistState.wait_keyword)
@@ -108,7 +109,7 @@ async def add_pub_blacklist(cb: CallbackQuery, state: FSMContext):
 
 @router.message(BlacklistState.wait_keyword)
 async def process_pub_blacklist_keyword(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     keyword = msg.text.strip()
@@ -138,7 +139,7 @@ async def process_pub_blacklist_keyword(msg: Message, state: FSMContext):
 # ================== УДАЛЕНИЕ ИЗ ЧЕРНОГО СПИСКА ==================
 @router.callback_query(F.data == "remove_pub_blacklist")
 async def remove_pub_blacklist(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     blacklist, total = await get_publication_blacklist(page=1, per_page=100)
@@ -166,7 +167,7 @@ async def remove_pub_blacklist(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("remove_blacklist_word_"))
 async def process_remove_blacklist_word(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     keyword = cb.data.replace("remove_blacklist_word_", "")

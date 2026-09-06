@@ -3,6 +3,7 @@ from aiogram.types import *
 from aiogram.fsm.context import FSMContext
 
 from app.loader import logger
+from app.auth import is_admin as _is_admin
 from app.config import ADMINS
 from app.runtime_settings import get as get_setting
 from app.text_quality import detect_gibberish
@@ -207,7 +208,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
     # Более строгая проверка на осмысленность текста — только для обычных
     # пользователей. Админам можно писать что угодно (например, тестовые
     # посты).
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         is_gibberish, gibberish_reason = detect_gibberish(text)
         if is_gibberish:
             await msg.answer(

@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 
 
 from app.loader import bot, logger
+from app.auth import is_admin as _is_admin
 from app.config import (
     ADMINS, SUPER_ADMINS,
 )
@@ -64,7 +65,7 @@ def message_to_html(text: str, entities: list = None) -> str:
 
 @router.callback_query(F.data == "broadcast")
 async def broadcast_menu_handler(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     users_count = await get_users_count()
@@ -79,7 +80,7 @@ async def broadcast_menu_handler(cb: CallbackQuery):
 
 @router.callback_query(F.data == "broadcast_text")
 async def broadcast_text_handler(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.set_state(BroadcastState.wait_broadcast_text)
@@ -101,7 +102,7 @@ async def broadcast_text_handler(cb: CallbackQuery, state: FSMContext):
 
 @router.message(BroadcastState.wait_broadcast_text)
 async def process_broadcast_text(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     if not msg.text and not msg.caption:
@@ -122,7 +123,7 @@ async def process_broadcast_text(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == "broadcast_photo")
 async def broadcast_photo_handler(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.set_state(BroadcastState.wait_broadcast_photo)
@@ -140,7 +141,7 @@ async def broadcast_photo_handler(cb: CallbackQuery, state: FSMContext):
 
 @router.message(BroadcastState.wait_broadcast_photo)
 async def process_broadcast_photo(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     if not msg.photo:
@@ -165,7 +166,7 @@ async def process_broadcast_photo(msg: Message, state: FSMContext):
 
 @router.message(BroadcastState.wait_broadcast_text_with_photo)
 async def process_broadcast_text_with_photo(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     if not msg.text and not msg.caption:
@@ -226,7 +227,7 @@ async def show_broadcast_preview(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == "broadcast_start")
 async def start_broadcast(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     data = await state.get_data()
@@ -352,7 +353,7 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "broadcast_cancel")
 async def broadcast_cancel(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.clear()

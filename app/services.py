@@ -5,6 +5,7 @@
 от app.database, где лежат "чистые" операции с БД.
 """
 import asyncio
+from app.auth import is_admin as _is_admin
 import logging
 import re
 from html import escape
@@ -284,7 +285,7 @@ async def reject_post(post_id: int, moderator_id: Optional[int] = None, reason: 
 
 
 async def mark_ai_error(post_id: int, admin_id: int) -> bool:
-    if admin_id not in ADMINS:
+    if not _is_admin(admin_id):
         return False
     ok = await record_ai_correction(post_id, admin_id)
     if ok:
@@ -587,7 +588,7 @@ async def apply_priority_boost(post_id: int, payer_id: int) -> None:
 
 async def publish_priority_post(post_id: int, admin_id: int) -> Tuple[bool, str]:
     """Публикация прямо из ЛС администратора, без поиска поста в группе."""
-    if admin_id not in ADMINS:
+    if not _is_admin(admin_id):
         return False, "forbidden"
     post = await get_post_by_id(post_id)
     if not post:

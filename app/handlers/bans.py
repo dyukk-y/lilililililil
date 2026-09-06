@@ -5,6 +5,7 @@ from datetime import datetime
 import aiosqlite
 
 from app.loader import bot, logger
+from app.auth import is_admin as _is_admin
 from app.config import (
     ADMINS, DB_NAME,
 )
@@ -19,7 +20,7 @@ router = Router()
 # ================== COMMANDS FOR ADMINS ==================
 @router.message(F.text.startswith("/ban"))
 async def ban_command(msg: Message):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     parts = msg.text.split(maxsplit=2)
@@ -73,7 +74,7 @@ async def ban_command(msg: Message):
 
 @router.message(F.text.startswith("/unban"))
 async def unban_command(msg: Message):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     parts = msg.text.split()
@@ -113,7 +114,7 @@ async def unban_command(msg: Message):
 # ================== ЗАБЛОКИРОВАННЫЕ ПОЛЬЗОВАТЕЛИ ==================
 @router.callback_query(F.data == "banned_users")
 async def show_banned_users(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await show_banned_users_page(cb, page=1)
@@ -156,7 +157,7 @@ async def show_banned_users_page(cb: CallbackQuery, page: int):
 
 @router.callback_query(F.data.startswith("banned_page_"))
 async def banned_page_handler(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     try:

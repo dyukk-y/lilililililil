@@ -4,6 +4,7 @@ from aiogram.fsm.context import FSMContext
 
 
 from app.loader import bot, logger
+from app.auth import is_admin as _is_admin
 from app.config import (
     ADMINS, REQUIRED_SUBSCRIPTIONS,
 )
@@ -18,7 +19,7 @@ router = Router()
 # ================== УПРАВЛЕНИЕ ПОДПИСКАМИ ==================
 @router.callback_query(F.data == "manage_subscriptions")
 async def manage_subscriptions(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await cb.message.edit_text(
@@ -31,7 +32,7 @@ async def manage_subscriptions(cb: CallbackQuery):
 
 @router.callback_query(F.data == "list_subscriptions")
 async def list_subscriptions(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     if not REQUIRED_SUBSCRIPTIONS:
@@ -62,7 +63,7 @@ async def list_subscriptions(cb: CallbackQuery):
 
 @router.callback_query(F.data == "add_channel_subscription")
 async def add_channel_subscription(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.set_state(SubscriptionState.wait_subscription_add)
@@ -88,7 +89,7 @@ async def add_channel_subscription(cb: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "add_group_subscription")
 async def add_group_subscription(cb: CallbackQuery, state: FSMContext):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await state.set_state(SubscriptionState.wait_subscription_add)
@@ -127,7 +128,7 @@ def _parse_username_or_link(token: str):
 
 @router.message(SubscriptionState.wait_subscription_add)
 async def process_subscription_add(msg: Message, state: FSMContext):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return
     
     data = await state.get_data()
@@ -260,7 +261,7 @@ async def process_subscription_add(msg: Message, state: FSMContext):
 
 @router.callback_query(F.data == "remove_subscription")
 async def remove_subscription(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     if not REQUIRED_SUBSCRIPTIONS:
@@ -294,7 +295,7 @@ async def remove_subscription(cb: CallbackQuery):
 
 @router.callback_query(F.data.startswith("remove_sub_"))
 async def process_remove_subscription(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     try:
@@ -329,7 +330,7 @@ async def process_remove_subscription(cb: CallbackQuery):
 
 @router.callback_query(F.data == "refresh_subscriptions")
 async def refresh_subscriptions(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await load_subscriptions_from_db()

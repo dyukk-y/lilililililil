@@ -26,14 +26,14 @@ async def show_auto_phrase_page(cb: CallbackQuery, page: int):
     total_pages = (total + 9) // 10 or 1
 
     if not phrases:
-        text = "🔑 <b>Список ключевых фраз пуст</b>"
+        text = "🔑 Список ключевых фраз пуст"
         return await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in ADMINS))
 
     lines = [
-        f"🔑 <b>Ключевые фразы для автопубликации (стр. {page}/{total_pages}):</b>\n",
-        "<i>Если текст поста содержит хотя бы одну из этих фраз и проходит "
+        f"🔑 Ключевые фразы для автопубликации (стр. {page}/{total_pages}):\n",
+        "Если текст поста содержит хотя бы одну из этих фраз и проходит "
         "остальные проверки — он публикуется автоматически. Если ни одной "
-        "фразы нет — пост уходит на ручную модерацию.</i>\n",
+        "фразы нет — пост уходит на ручную модерацию.\n",
     ]
     start_idx = (page - 1) * 10 + 1
     for i, (phrase, added_by, added_time) in enumerate(phrases, start_idx):
@@ -62,10 +62,10 @@ async def add_auto_phrase_start(cb: CallbackQuery, state: FSMContext):
 
     await state.set_state(AutoPhraseState.wait_phrase)
     await cb.message.edit_text(
-        "🔑 <b>Добавление ключевой фразы</b>\n\n"
+        "🔑 Добавление ключевой фразы\n\n"
         "Отправьте фразу — если текст поста будет её содержать (без учёта "
         "регистра), пост станет кандидатом на автопубликацию.\n\n"
-        "<i>Примеры:</i> «что за», «расскажите про», «понравилась»",
+        "Примеры: «что за», «расскажите про», «понравилась»",
         parse_mode='HTML',
         reply_markup=auto_phrase_cancel_menu()
     )
@@ -114,7 +114,7 @@ async def remove_auto_phrase_start(cb: CallbackQuery):
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="auto_phrase_list")])
 
     await cb.message.edit_text(
-        "🗑️ <b>Удаление фразы</b>\n\nВыберите фразу для удаления:",
+        "🗑️ Удаление фразы\n\nВыберите фразу для удаления:",
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
     )

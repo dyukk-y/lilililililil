@@ -22,9 +22,9 @@ async def manage_subscriptions(cb: CallbackQuery):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await cb.message.edit_text(
-        "📢 <b>Управление обязательными подписками</b>\n\n"
-        f"📊 <b>Текущее количество подписок:</b> {len(REQUIRED_SUBSCRIPTIONS)}\n\n"
-        "<i>Выберите действие:</i>",
+        "📢 Управление обязательными подписками\n\n"
+        f"📊 Текущее количество подписок: {len(REQUIRED_SUBSCRIPTIONS)}\n\n"
+        "Выберите действие:",
         parse_mode='HTML',
         reply_markup=subscriptions_menu()
     )
@@ -35,9 +35,9 @@ async def list_subscriptions(cb: CallbackQuery):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     if not REQUIRED_SUBSCRIPTIONS:
-        text = "📋 <b>Список обязательных подписок пуст</b>"
+        text = "📋 Список обязательных подписок пуст"
     else:
-        text_lines = ["📋 <b>Обязательные подписки:</b>\n\n"]
+        text_lines = ["📋 Обязательные подписки:\n\n"]
         
         for i, sub in enumerate(REQUIRED_SUBSCRIPTIONS, 1):
             if sub["type"] == "channel":
@@ -47,7 +47,7 @@ async def list_subscriptions(cb: CallbackQuery):
             else:
                 emoji = "🤖"
                 
-            text_lines.append(f"{i}. {emoji} <b>{sub['name']}</b>")
+            text_lines.append(f"{i}. {emoji} {sub['name']}")
             text_lines.append(f"   Тип: {sub['type']}")
             text_lines.append(f"   ID/Username: <code>{sub['id']}</code>")
             text_lines.append(f"   Юзернейм: {sub['username']}")
@@ -69,13 +69,13 @@ async def add_channel_subscription(cb: CallbackQuery, state: FSMContext):
     await state.update_data(sub_type="channel")
     
     await cb.message.edit_text(
-        "➕ <b>Добавление обязательного канала</b>\n\n"
+        "➕ Добавление обязательного канала\n\n"
         "Отправьте данные канала в формате:\n"
         "<code>ID_канала @юзернейм_или_ссылка Название_канала</code>\n\n"
-        "<i>Примеры:</i>\n"
+        "Примеры:\n"
         "<code>-1001234567890 @example_channel Основной канал</code>\n"
         "<code>-1001234567890 https://t.me/+AbCdEfGhIjK Закрытый канал</code>\n\n"
-        "<i>Примечания:</i>\n"
+        "Примечания:\n"
         "1. ID канала должен быть числом (начинаться с -100)\n"
         "2. Для открытого канала — юзернейм с @; для закрытого (без "
         "публичного юзернейма) — пригласительная ссылка (https://t.me/+...)\n"
@@ -95,13 +95,13 @@ async def add_group_subscription(cb: CallbackQuery, state: FSMContext):
     await state.update_data(sub_type="group")
     
     await cb.message.edit_text(
-        "👥 <b>Добавление обязательной группы</b>\n\n"
+        "👥 Добавление обязательной группы\n\n"
         "Отправьте данные группы в формате:\n"
         "<code>ID_группы @юзернейм_или_ссылка Название_группы</code>\n\n"
-        "<i>Примеры:</i>\n"
+        "Примеры:\n"
         "<code>-1001234567890 @example_group Наша группа</code>\n"
         "<code>-1001234567890 https://t.me/+AbCdEfGhIjK Закрытая группа</code>\n\n"
-        "<i>Примечания:</i>\n"
+        "Примечания:\n"
         "1. ID группы должен быть числом (начинаться с -100)\n"
         "2. Для открытой группы — юзернейм с @; для закрытой (без "
         "публичного юзернейма) — пригласительная ссылка (https://t.me/+...)\n"
@@ -173,11 +173,11 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         
         await msg.answer(
             f"✅ Канал добавлен:\n"
-            f"<b>Тип:</b> Канал\n"
-            f"<b>Название:</b> {name}\n"
-            f"<b>ID:</b> <code>{channel_id}</code>\n"
-            f"<b>Юзернейм:</b> {username or '—  (закрытый, по ссылке)'}\n"
-            f"<b>Ссылка:</b> {url}",
+            f"Тип: Канал\n"
+            f"Название: {name}\n"
+            f"ID: <code>{channel_id}</code>\n"
+            f"Юзернейм: {username or '—  (закрытый, по ссылке)'}\n"
+            f"Ссылка: {url}",
             parse_mode='HTML',
             reply_markup=subscriptions_menu()
         )
@@ -215,7 +215,7 @@ async def process_subscription_add(msg: Message, state: FSMContext):
             bot_member = await bot.get_chat_member(chat_id=group_id, user_id=bot.id)
             if bot_member.status not in ["administrator", "creator"]:
                 await msg.answer(
-                    f"⚠️ <b>Предупреждение!</b>\n\n"
+                    f"⚠️ Предупреждение!\n\n"
                     f"Бот не является администратором в группе '{name}'.\n"
                     f"Для корректной проверки подписок бот должен быть администратором "
                     f"(особенно если группа закрытая).\n\n"
@@ -225,7 +225,7 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         except Exception as e:
             logger.error(f"Ошибка проверки прав бота в группе: {e}")
             await msg.answer(
-                f"⚠️ <b>Предупреждение!</b>\n\n"
+                f"⚠️ Предупреждение!\n\n"
                 f"Не удалось проверить права бота в группе '{name}'.\n"
                 f"Убедитесь, что бот добавлен в группу и является администратором.\n\n"
                 f"Группа все равно будет добавлена.",
@@ -245,11 +245,11 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         
         await msg.answer(
             f"✅ Группа добавлена:\n"
-            f"<b>Тип:</b> Группа\n"
-            f"<b>Название:</b> {name}\n"
-            f"<b>ID:</b> <code>{group_id}</code>\n"
-            f"<b>Юзернейм:</b> {username or '—  (закрытая, по ссылке)'}\n"
-            f"<b>Ссылка:</b> {url}",
+            f"Тип: Группа\n"
+            f"Название: {name}\n"
+            f"ID: <code>{group_id}</code>\n"
+            f"Юзернейм: {username or '—  (закрытая, по ссылке)'}\n"
+            f"Ссылка: {url}",
             parse_mode='HTML',
             reply_markup=subscriptions_menu()
         )
@@ -286,7 +286,7 @@ async def remove_subscription(cb: CallbackQuery):
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="manage_subscriptions")])
     
     await cb.message.edit_text(
-        "🗑️ <b>Удаление подписки</b>\n\n"
+        "🗑️ Удаление подписки\n\n"
         "Выберите подписку для удаления:",
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -313,7 +313,7 @@ async def process_remove_subscription(cb: CallbackQuery):
                 
             await cb.message.edit_text(
                 f"✅ Подписка удалена:\n\n"
-                f"{emoji} <b>{removed_sub['name']}</b>\n"
+                f"{emoji} {removed_sub['name']}\n"
                 f"Тип: {removed_sub['type']}\n"
                 f"Юзернейм: {removed_sub['username']}\n"
                 f"Ссылка: {removed_sub['url']}",
@@ -342,19 +342,19 @@ async def admins_page(cb: CallbackQuery):
         return await cb.answer("🚫 Вы заблокированы.", show_alert=True)
     
     text = (
-        "👥 <b>Администраторы проекта</b>\n\n"
-        "📱 <b>Контакты для связи:</b>\n"
+        "👥 Администраторы проекта\n\n"
+        "📱 Контакты для связи:\n"
         "• @theaugustine\n"
         "• @nekon4il\n\n"
-        "⏰ <b>Время работы:</b>\n"
+        "⏰ Время работы:\n"
         "• Пн-Пт: 10:00 - 23:00\n"
         "• Сб-Вс: 12:00 - 00:00\n\n"
-        "📞 <b>По вопросам:</b>\n"
+        "📞 По вопросам:\n"
         "• Публикации постов\n"
         "• Модерации\n"
         "• Рекламы\n"
         "• Технических проблем\n\n"
-        "✉️ <b>Пишите нам, мы всегда на связи!</b>"
+        "✉️ Пишите нам, мы всегда на связи!"
     )
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admins_keyboard())

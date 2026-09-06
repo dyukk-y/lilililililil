@@ -3,8 +3,6 @@ import logging
 import sys
 
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import BOT_TOKEN
@@ -19,5 +17,5 @@ logging.basicConfig(
 )
 logger = logging.getLogger("smotrbot")
 
-bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())

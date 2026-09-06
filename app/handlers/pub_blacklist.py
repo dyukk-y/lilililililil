@@ -30,11 +30,11 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
     total_pages = (total + 4) // 5
     
     if not blacklist:
-        text = "📝 <b>Список стоп-слов пуст</b>"
+        text = "📝 Список стоп-слов пуст"
         await cb.message.edit_text(text, parse_mode='HTML', reply_markup=blacklist_menu())
         return
     
-    text_lines = [f"📋 <b>Стоп-слова — маты/оскорбления/спам (стр. {page}/{total_pages}):</b>\n\n"]
+    text_lines = [f"📋 Стоп-слова — маты/оскорбления/спам (стр. {page}/{total_pages}):\n\n"]
     
     start_idx = (page - 1) * 5 + 1
     for i, (keyword, added_by, added_time) in enumerate(blacklist, start_idx):
@@ -58,7 +58,7 @@ async def show_pub_blacklist_page(cb: CallbackQuery, page: int):
         else:
             admin_info = "неизвестно"
         
-        text_lines.append(f"<b>{i}. 🔤 <code>{keyword}</code></b>")
+        text_lines.append(f"{i}. 🔤 <code>{keyword}</code>")
         text_lines.append(f"   👤 Добавил: {admin_info}")
         text_lines.append(f"   🕐 Время: {time_str}\n")
     
@@ -92,15 +92,15 @@ async def add_pub_blacklist(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(BlacklistState.wait_keyword)
     await cb.message.edit_text(
-        "📝 <b>Добавление стоп-слова</b>\n\n"
+        "📝 Добавление стоп-слова\n\n"
         "Отправьте слово или фразу, которую хотите добавить в стоп-список "
         "(бот уже содержит базовый набор матов и оскорблений — это для "
         "своих дополнений: спам-слов, конкретных юзернеймов и т.п.).\n\n"
-        "<i>Примеры:</i>\n"
+        "Примеры:\n"
         "• @spammer - для блокировки упоминаний юзернейма\n"
         "• плохое слово - для блокировки конкретного слова\n"
         "• запрещенная фраза - для блокировки конкретной фразы\n\n"
-        "⚠️ <b>Внимание:</b> Регистр не учитывается. Пост с таким словом/фразой "
+        "⚠️ Внимание: Регистр не учитывается. Пост с таким словом/фразой "
         "будет автоматически отклонён ещё до постановки в очередь публикации.",
         parse_mode='HTML',
         reply_markup=blacklist_cancel_menu()
@@ -158,7 +158,7 @@ async def remove_pub_blacklist(cb: CallbackQuery, state: FSMContext):
     keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="pub_blacklist")])
     
     await cb.message.edit_text(
-        "🗑️ <b>Удаление слова из черного списка публикаций</b>\n\n"
+        "🗑️ Удаление слова из черного списка публикаций\n\n"
         "Выберите слово для удаления:",
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard)

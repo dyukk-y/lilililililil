@@ -30,10 +30,10 @@ async def offer(cb: CallbackQuery):
         [InlineKeyboardButton(text="⬅ Назад", callback_data="menu")]
     ])
     await cb.message.edit_text(
-        "✍️ <b>Новая публикация</b>\n\n"
-        "<blockquote>Выберите формат поста. На следующем шаге бот подскажет, что нужно отправить.</blockquote>\n\n"
-        "📷 <b>С фото</b> — изображение + текст\n"
-        "📝 <b>Без фото</b> — только текст\n\n"
+        "✍️ Новая публикация\n\n"
+        "Выберите формат поста. На следующем шаге бот подскажет, что нужно отправить.\n\n"
+        "📷 С фото — изображение + текст\n"
+        "📝 Без фото — только текст\n\n"
         "⚠️ Каждый пост должен начинаться с 🧑, 👩, 🧑 или 👩 либо 👩 или 🧑.",
         parse_mode='HTML',
         reply_markup=kb
@@ -47,11 +47,11 @@ async def with_photo(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(PostState.wait_photo)
     await cb.message.edit_text(
-        "📷 <b>Добавьте фото</b>\n\n"
-        "<blockquote>Можно отправить фото сразу с подписью — бот обработает её как текст публикации.</blockquote>\n\n"
-        "<i>Если подписи нет, после фото я попрошу текст.</i>\n\n"
+        "📷 Добавьте фото\n\n"
+        "Можно отправить фото сразу с подписью — бот обработает её как текст публикации.\n\n"
+        "Если подписи нет, после фото я попрошу текст.\n\n"
         "Не забудьте начать текст с 🧑 или 👩.\n\n"
-        "<i>Если добавите подпись к фото, отдельно отправлять текст не понадобится.</i>",
+        "Если добавите подпись к фото, отдельно отправлять текст не понадобится.",
         parse_mode='HTML',
         reply_markup=back_to_previous()
     )
@@ -81,7 +81,7 @@ async def get_photo(msg: Message, state: FSMContext):
 
     await msg.answer(
         "✅ Фото принято.\n\n"
-        "📝 <b>Теперь пришли текст к фото:</b>\n\n"
+        "📝 Теперь пришли текст к фото:\n\n"
         "⚠️ Не забудьте добавить 🧑 или 👩 в текст!",
         parse_mode='HTML',
         reply_markup=back_to_post_type()
@@ -109,7 +109,7 @@ async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> No
 
     if is_explicit:
         await msg.answer(
-            "❌ <b>Публикация отклонена</b>\n\n"
+            "❌ Публикация отклонена\n\n"
             "На фото обнаружен запрещённый контент.",
             parse_mode='HTML',
             reply_markup=menu_btn()
@@ -136,8 +136,8 @@ async def no_photo(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(PostState.wait_text_only)
     await cb.message.edit_text(
-        "📝 <b>Текст публикации</b>\n\n"
-        "<blockquote>Напишите пост так, как он должен выглядеть в канале.</blockquote>\n\n"
+        "📝 Текст публикации\n\n"
+        "Напишите пост так, как он должен выглядеть в канале.\n\n"
         "⚠️ В самом начале обязательно поставьте 🧑 или 👩.",
         reply_markup=back_to_previous()
     )
@@ -192,7 +192,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
     is_blacklisted, keyword = await is_in_publication_blacklist(text)
     if is_blacklisted:
         await msg.answer(
-            f"❌ <b>Публикация отклонена</b>\n\n"
+            f"❌ Публикация отклонена\n\n"
             f"Текст содержит запрещённое слово/фразу (маты, оскорбления или спам): "
             f"<code>{keyword}</code>",
             parse_mode='HTML',
@@ -218,7 +218,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
         is_gibberish, gibberish_reason = detect_gibberish(text)
         if is_gibberish:
             await msg.answer(
-                "❌ <b>Публикация отклонена</b>\n\n"
+                "❌ Публикация отклонена\n\n"
                 "Текст не похож на осмысленное сообщение. Опишите словами, "
                 "что вы хотите рассказать.",
                 parse_mode='HTML',
@@ -230,7 +230,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
     duplicate_count = await count_similar_posts(text)
     if duplicate_count >= get_setting("DUPLICATE_REPEAT_LIMIT"):
         await msg.answer(
-            "❌ <b>Публикация отклонена</b>\n\n"
+            "❌ Публикация отклонена\n\n"
             "Такой (или очень похожий) текст уже присылали слишком много раз. "
             "Пришлите, пожалуйста, что-то новое.",
             parse_mode='HTML',
@@ -260,7 +260,7 @@ async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
     
     await cb.message.edit_text(
         "Выберите тип поста:\n\n"
-        "⚠️ <b>Важно:</b>\n"
+        "⚠️ Важно:\n"
         "Помните о правилах публикации",
         parse_mode='HTML',
         reply_markup=kb

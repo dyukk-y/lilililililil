@@ -84,20 +84,20 @@ def _pin_label(hours: int) -> str:
 
 def _master_text() -> str:
     return (
-        "📢 <b>Реклама</b>\n\n"
+        "📢 Реклама\n\n"
         "Выберите направление размещения:\n\n"
-        "📝 <b>Пост</b> — срок публикации и закрепа выбираются отдельно.\n"
-        "🎁 <b>Комбо</b> — готовый пакет с дополнительными услугами."
+        "📝 Пост — срок публикации и закрепа выбираются отдельно.\n"
+        "🎁 Комбо — готовый пакет с дополнительными услугами."
     )
 
 
 def _combo_details(combo_key: str) -> str:
     c = COMBOS[combo_key]
-    lines = [f"⏱ Публикация: <b>{_hours_label(c['duration'])}</b>", f"📌 Закреп: <b>{_pin_label(c['pin'])}</b>"]
+    lines = [f"⏱ Публикация: {_hours_label(c['duration'])}", f"📌 Закреп: {_pin_label(c['pin'])}"]
     if c["subscription"]:
-        lines.append(f"🔐 Обязательная подписка: <b>{c['subscription']} ч.</b>")
+        lines.append(f"🔐 Обязательная подписка: {c['subscription']} ч.")
     if c["broadcasts"]:
-        lines.append(f"📨 Рассылка в боте: <b>{c['broadcasts']} раз(а)</b>")
+        lines.append(f"📨 Рассылка в боте: {c['broadcasts']} раз(а)")
     return "\n".join(lines)
 
 
@@ -138,7 +138,7 @@ async def choose_ad_type_post(cb: CallbackQuery, state: FSMContext):
     )
     await cb.answer()
     await cb.message.edit_text(
-        "📝 <b>Пост</b>\n\nОтправьте рекламный пост следующим сообщением.\n"
+        "📝 Пост\n\nОтправьте рекламный пост следующим сообщением.\n"
         "Telegram-медиа, форматирование, ссылки и подписи будут сохранены.\n\n"
         "После получения выберете срок публикации и срок закрепа.",
         parse_mode="HTML", reply_markup=advertising_type_back_keyboard(),
@@ -153,11 +153,11 @@ async def choose_ad_type_combo(cb: CallbackQuery, state: FSMContext):
     await state.update_data(ad_type="combo")
     await cb.answer()
     await cb.message.edit_text(
-        "🎁 <b>Комбо</b>\n\nОтправьте рекламный пост следующим сообщением.\n"
+        "🎁 Комбо\n\nОтправьте рекламный пост следующим сообщением.\n"
         "После получения выберете готовый пакет.\n\n"
-        "<b>72 часа</b> — дополнительно 1 рассылка в боте.\n"
-        "<b>Неделя</b> — обязательная подписка на 24 часа.\n"
-        "<b>Неделя+</b> — обязательная подписка на 72 часа + 3 рассылки.",
+        "72 часа — дополнительно 1 рассылка в боте.\n"
+        "Неделя — обязательная подписка на 24 часа.\n"
+        "Неделя+ — обязательная подписка на 72 часа + 3 рассылки.",
         parse_mode="HTML", reply_markup=advertising_type_back_keyboard(),
     )
 
@@ -177,7 +177,7 @@ async def _cancel_ad(ad_id, state: FSMContext, cb_or_msg):
     await state.clear()
     if isinstance(cb_or_msg, CallbackQuery):
         await cb_or_msg.answer("Отменено")
-        await cb_or_msg.message.edit_text("❌ <b>Создание рекламной публикации отменено.</b>", parse_mode="HTML")
+        await cb_or_msg.message.edit_text("❌ Создание рекламной публикации отменено.", parse_mode="HTML")
     else:
         await cb_or_msg.answer("❌ Создание рекламной публикации отменено.")
 
@@ -234,10 +234,10 @@ async def receive_advertising_post(msg: Message, state: FSMContext):
         await state.update_data(ad_id=int(ad_id), source_message_id=msg.message_id, source_chat_id=msg.chat.id, ad_type=ad_type)
 
         if ad_type == "combo":
-            control = await msg.answer("👆 <b>Предпросмотр</b>\n\nВыберите комбо:", parse_mode="HTML", reply_markup=advertising_combo_keyboard(int(ad_id)))
+            control = await msg.answer("👆 Предпросмотр\n\nВыберите комбо:", parse_mode="HTML", reply_markup=advertising_combo_keyboard(int(ad_id)))
             await state.set_state(AdvertisingState.wait_combo)
         else:
-            control = await msg.answer("👆 <b>Предпросмотр</b>\n\n⏱ <b>На сколько публиковать пост?</b>", parse_mode="HTML", reply_markup=advertising_duration_keyboard(int(ad_id)))
+            control = await msg.answer("👆 Предпросмотр\n\n⏱ На сколько публиковать пост?", parse_mode="HTML", reply_markup=advertising_duration_keyboard(int(ad_id)))
             await state.set_state(AdvertisingState.wait_duration)
         await set_advertising_control(int(ad_id), msg.chat.id, control.message_id)
     except Exception as e:
@@ -259,7 +259,7 @@ async def replace_ad_source(cb: CallbackQuery, state: FSMContext):
     await state.update_data(ad_id=ad_id, ad_type=ad[17] or "post")
     await state.set_state(AdvertisingState.wait_post)
     await cb.answer()
-    await cb.message.edit_text("✏️ <b>Отправьте новый рекламный пост.</b>", parse_mode="HTML", reply_markup=advertising_type_back_keyboard())
+    await cb.message.edit_text("✏️ Отправьте новый рекламный пост.", parse_mode="HTML", reply_markup=advertising_type_back_keyboard())
 
 
 @router.callback_query(F.data.startswith("ad_duration:"))
@@ -278,7 +278,7 @@ async def choose_ad_duration(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdvertisingState.wait_pin)
     await cb.answer()
     await cb.message.edit_text(
-        f"⏱ <b>Публикация: {_hours_label(hours)}</b>\n\n📌 <b>На какое время нужен закреп?</b>",
+        f"⏱ Публикация: {_hours_label(hours)}\n\n📌 На какое время нужен закреп?",
         parse_mode="HTML", reply_markup=advertising_pin_keyboard(ad_id, hours),
     )
 
@@ -290,7 +290,7 @@ async def back_to_duration(cb: CallbackQuery, state: FSMContext):
     ad_id = int(cb.data.split(":")[1])
     await state.set_state(AdvertisingState.wait_duration)
     await cb.answer()
-    await cb.message.edit_text("⏱ <b>На сколько публиковать пост?</b>", parse_mode="HTML", reply_markup=advertising_duration_keyboard(ad_id))
+    await cb.message.edit_text("⏱ На сколько публиковать пост?", parse_mode="HTML", reply_markup=advertising_duration_keyboard(ad_id))
 
 
 @router.callback_query(F.data.startswith("ad_pin:"))
@@ -321,7 +321,7 @@ async def back_to_ad_duration(cb: CallbackQuery, state: FSMContext):
     ad_id = int(cb.data.split(":")[1])
     await state.set_state(AdvertisingState.wait_duration)
     await cb.answer()
-    await cb.message.edit_text("⏱ <b>На сколько публиковать пост?</b>", parse_mode="HTML", reply_markup=advertising_duration_keyboard(ad_id))
+    await cb.message.edit_text("⏱ На сколько публиковать пост?", parse_mode="HTML", reply_markup=advertising_duration_keyboard(ad_id))
 
 
 @router.callback_query(F.data.startswith("ad_combo:"))
@@ -354,8 +354,8 @@ async def choose_ad_combo(cb: CallbackQuery, state: FSMContext):
         await state.update_data(subscription_hours=combo["subscription"])
         await state.set_state(AdvertisingState.wait_subscription)
         await cb.message.edit_text(
-            f"🎁 <b>Комбо: {combo['label']}</b>\n\n{_combo_details(combo_key)}\n\n"
-            "🔐 <b>Отправьте канал или бота для обязательной подписки.</b>\n"
+            f"🎁 Комбо: {combo['label']}\n\n{_combo_details(combo_key)}\n\n"
+            "🔐 Отправьте канал или бота для обязательной подписки.\n"
             "Можно прислать <code>@username</code> или ссылку <code>https://t.me/username</code>.\n\n"
             "Для канала бот должен иметь право проверять подписку.",
             parse_mode="HTML", reply_markup=advertising_subscription_back_keyboard(ad_id),
@@ -373,9 +373,9 @@ async def _start_broadcast_schedule(cb: CallbackQuery, state: FSMContext, ad_id:
     await state.update_data(broadcast_times=[], broadcast_index=1, broadcast_count=count)
     await state.set_state(AdvertisingState.wait_broadcast_time)
     await cb.message.edit_text(
-        f"📨 <b>Расписание рассылок</b>\n\n"
-        f"Нужно указать дату и время для <b>{count}</b> рассылок.\n"
-        "Часовой пояс: <b>Новосибирск (UTC+7)</b>.\n\n"
+        f"📨 Расписание рассылок\n\n"
+        f"Нужно указать дату и время для {count} рассылок.\n"
+        "Часовой пояс: Новосибирск (UTC+7).\n\n"
         "Формат: <code>06.09.2026 18:30</code>\n"
         "Вводите рассылки по одной, по порядку.",
         parse_mode="HTML", reply_markup=advertising_broadcast_back_keyboard(ad_id),
@@ -434,10 +434,10 @@ async def receive_subscription_target(msg: Message, state: FSMContext):
             await state.set_state(AdvertisingState.wait_broadcast_time)
             await state.update_data(broadcast_times=[], broadcast_index=1)
             await msg.answer(
-                f"✅ Цель обязательной подписки сохранена: <b>{name}</b>\n\n"
-                f"🔐 Срок: <b>{hours} ч.</b>\n\n"
+                f"✅ Цель обязательной подписки сохранена: {name}\n\n"
+                f"🔐 Срок: {hours} ч.\n\n"
                 "📨 Теперь укажите дату и время первой рассылки.\n"
-                "Часовой пояс: <b>Новосибирск (UTC+7)</b>.\n"
+                "Часовой пояс: Новосибирск (UTC+7).\n"
                 "Формат: <code>06.09.2026 18:30</code>",
                 parse_mode="HTML", reply_markup=advertising_broadcast_back_keyboard(ad_id),
             )
@@ -482,8 +482,8 @@ async def receive_broadcast_time(msg: Message, state: FSMContext):
     if index < count:
         await state.update_data(broadcast_times=times, broadcast_index=index + 1)
         return await msg.answer(
-            f"✅ Рассылка {index}/{count}: <b>{scheduled.strftime('%d.%m.%Y %H:%M')}</b> (Новосибирск)\n\n"
-            f"Введите дату и время <b>рассылки {index + 1}/{count}</b>.",
+            f"✅ Рассылка {index}/{count}: {scheduled.strftime('%d.%m.%Y %H:%M')} (Новосибирск)\n\n"
+            f"Введите дату и время рассылки {index + 1}/{count}.",
             parse_mode="HTML", reply_markup=advertising_broadcast_back_keyboard(ad_id),
         )
     await state.update_data(broadcast_times=times)
@@ -491,7 +491,7 @@ async def receive_broadcast_time(msg: Message, state: FSMContext):
     c = COMBOS[combo_key]
     await state.set_state(AdvertisingState.wait_confirm)
     await msg.answer(
-        "📨 <b>Расписание готово</b>\n\n" + "\n".join(
+        "📨 Расписание готово\n\n" + "\n".join(
             f"{i}. {datetime.fromisoformat(t).strftime('%d.%m.%Y %H:%M')} (Новосибирск)" for i, t in enumerate(times, 1)
         ), parse_mode="HTML",
     )
@@ -503,13 +503,13 @@ async def _show_confirmation(cb, ad_id: int, duration_hours: int, pin_hours: int
 
 
 async def _show_confirmation_message(target, ad_id: int, duration_hours: int, pin_hours: int, ad_type: str, combo_label: str | None = None, sub: dict | None = None):
-    mode = f"🎁 Комбо: <b>{combo_label}</b>" if combo_label else "📝 Режим: <b>Пост</b>"
-    data_text = [mode, f"⏱ Публикация: <b>{_hours_label(duration_hours)}</b>", f"📌 Закреп: <b>{_pin_label(pin_hours)}</b>"]
+    mode = f"🎁 Комбо: {combo_label}" if combo_label else "📝 Режим: Пост"
+    data_text = [mode, f"⏱ Публикация: {_hours_label(duration_hours)}", f"📌 Закреп: {_pin_label(pin_hours)}"]
     if sub:
-        data_text.append(f"🔐 Обязательная подписка: <b>{escape(str(sub.get('name') or 'ресурс'))}</b>")
+        data_text.append(f"🔐 Обязательная подписка: {escape(str(sub.get('name') or 'ресурс'))}")
         if combo_label in COMBOS:
-            data_text.append(f"   Срок подписки: <b>{COMBOS[combo_label]['subscription']} ч.</b>")
-    text = "👆 <b>Проверьте рекламную публикацию</b>\n\nПост выше будет опубликован без изменений.\n\n" + "\n".join(data_text) + "\n\nЕсли всё верно — нажмите «Опубликовать»."
+            data_text.append(f"   Срок подписки: {COMBOS[combo_label]['subscription']} ч.")
+    text = "👆 Проверьте рекламную публикацию\n\nПост выше будет опубликован без изменений.\n\n" + "\n".join(data_text) + "\n\nЕсли всё верно — нажмите «Опубликовать»."
     if isinstance(target, Message):
         await target.answer(text, parse_mode="HTML", reply_markup=advertising_confirm_keyboard(ad_id, ad_type))
     else:
@@ -526,11 +526,11 @@ async def back_from_broadcasts(cb: CallbackQuery, state: FSMContext):
     if combo_key and COMBOS[combo_key]["subscription"]:
         await state.set_state(AdvertisingState.wait_subscription)
         await cb.answer()
-        await cb.message.edit_text("🔐 <b>Отправьте канал или бота для обязательной подписки.</b>\nМожно прислать @username или ссылку https://t.me/username.", parse_mode="HTML", reply_markup=advertising_subscription_back_keyboard(ad_id))
+        await cb.message.edit_text("🔐 Отправьте канал или бота для обязательной подписки.\nМожно прислать @username или ссылку https://t.me/username.", parse_mode="HTML", reply_markup=advertising_subscription_back_keyboard(ad_id))
     else:
         await state.set_state(AdvertisingState.wait_combo)
         await cb.answer()
-        await cb.message.edit_text("🎁 <b>Выберите комбо:</b>", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
+        await cb.message.edit_text("🎁 Выберите комбо:", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
 
 
 @router.callback_query(F.data.startswith("ad_subscription_back:"))
@@ -540,7 +540,7 @@ async def back_from_subscription(cb: CallbackQuery, state: FSMContext):
     ad_id = int(cb.data.split(":")[1])
     await state.set_state(AdvertisingState.wait_combo)
     await cb.answer()
-    await cb.message.edit_text("🎁 <b>Выберите комбо:</b>", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
+    await cb.message.edit_text("🎁 Выберите комбо:", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
 
 
 @router.callback_query(F.data.startswith("ad_confirm_back:"))
@@ -557,17 +557,17 @@ async def back_from_confirmation(cb: CallbackQuery, state: FSMContext):
         key = (await state.get_data()).get("combo_key") or "24"
         if COMBOS[key]["subscription"]:
             await state.set_state(AdvertisingState.wait_subscription)
-            await cb.message.edit_text("🔐 <b>Отправьте канал или бота для обязательной подписки.</b>", parse_mode="HTML", reply_markup=advertising_subscription_back_keyboard(ad_id))
+            await cb.message.edit_text("🔐 Отправьте канал или бота для обязательной подписки.", parse_mode="HTML", reply_markup=advertising_subscription_back_keyboard(ad_id))
         elif COMBOS[key]["broadcasts"]:
             await state.set_state(AdvertisingState.wait_broadcast_time)
-            await cb.message.edit_text("📨 <b>Введите дату и время первой рассылки.</b>\nНовосибирск (UTC+7).\nФормат: <code>06.09.2026 18:30</code>", parse_mode="HTML", reply_markup=advertising_broadcast_back_keyboard(ad_id))
+            await cb.message.edit_text("📨 Введите дату и время первой рассылки.\nНовосибирск (UTC+7).\nФормат: <code>06.09.2026 18:30</code>", parse_mode="HTML", reply_markup=advertising_broadcast_back_keyboard(ad_id))
         else:
             await state.set_state(AdvertisingState.wait_combo)
-            await cb.message.edit_text("🎁 <b>Выберите комбо:</b>", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
+            await cb.message.edit_text("🎁 Выберите комбо:", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
     else:
         duration = int(ad[9])
         await state.set_state(AdvertisingState.wait_pin)
-        await cb.message.edit_text("📌 <b>На какое время нужен закреп?</b>", parse_mode="HTML", reply_markup=advertising_pin_keyboard(ad_id, duration))
+        await cb.message.edit_text("📌 На какое время нужен закреп?", parse_mode="HTML", reply_markup=advertising_pin_keyboard(ad_id, duration))
 
 
 @router.callback_query(F.data.startswith("ad_confirm:"))
@@ -594,7 +594,7 @@ async def confirm_advertising_publish(cb: CallbackQuery, state: FSMContext):
         if COMBOS[combo_key]["subscription"] and not ad[18]:
             return await cb.answer("⚠️ Не настроена обязательная подписка.", show_alert=True)
     await cb.answer("⏳ Публикую...")
-    await cb.message.edit_text("⏳ <b>Публикую рекламный пост в канал...</b>", parse_mode="HTML")
+    await cb.message.edit_text("⏳ Публикую рекламный пост в канал...", parse_mode="HTML")
     try:
         # Расписание рассылок сохраняем ДО публикации. Если Telegram временно
         # недоступен и публикация придётся повторить, расписание не потеряется.
@@ -643,17 +643,17 @@ async def confirm_advertising_publish(cb: CallbackQuery, state: FSMContext):
         mode = f"Комбо {combo_key}" if combo_key else "Пост"
         await log("advertising_publish", f"admin {cb.from_user.id}: ad #{ad_id}, {mode}, {duration_hours}h, pin={pin_hours}h, broadcasts={len(broadcast_times)}")
         result = (
-            "✅ <b>Рекламный пост опубликован.</b>\n\n"
-            f"Режим: <b>{mode}</b>\n"
-            f"Публикация: <b>{_hours_label(duration_hours)}</b>\n"
-            f"Закреп: <b>{_pin_label(pin_hours)}</b>\n"
+            "✅ Рекламный пост опубликован.\n\n"
+            f"Режим: {mode}\n"
+            f"Публикация: {_hours_label(duration_hours)}\n"
+            f"Закреп: {_pin_label(pin_hours)}\n"
         )
         if combo_key and COMBOS[combo_key]["subscription"]:
             sub = await get_advertising_post(ad_id)
             if sub and sub[21]:
-                result += f"🔐 Обязательная подписка: <b>{escape(str(sub[21]))}</b> на {COMBOS[combo_key]['subscription']} ч.\n"
+                result += f"🔐 Обязательная подписка: {escape(str(sub[21]))} на {COMBOS[combo_key]['subscription']} ч.\n"
         if broadcast_times:
-            result += f"📨 Рассылок запланировано: <b>{len(broadcast_times)}</b>\n"
+            result += f"📨 Рассылок запланировано: {len(broadcast_times)}\n"
         result += f"🆔 Реклама #{ad_id}\n\nПост будет автоматически удалён после окончания срока."
         if warnings:
             result += "\n\n⚠️ " + "; ".join(warnings) + "."
@@ -665,7 +665,7 @@ async def confirm_advertising_publish(cb: CallbackQuery, state: FSMContext):
         if current and current[15] == "draft":
             await set_advertising_error(ad_id, str(e))
             await cb.message.edit_text(
-                "❌ <b>Не удалось опубликовать рекламный пост.</b>\n\n"
+                "❌ Не удалось опубликовать рекламный пост.\n\n"
                 "Исходное сообщение и настройки сохранены — можно безопасно повторить.",
                 parse_mode="HTML", reply_markup=advertising_retry_keyboard(ad_id),
             )
@@ -673,8 +673,8 @@ async def confirm_advertising_publish(cb: CallbackQuery, state: FSMContext):
             # Если публикация уже зафиксирована в БД, нельзя переводить её
             # обратно в error: это создало бы риск повторной публикации.
             await cb.message.edit_text(
-                "⚠️ <b>Реклама уже опубликована, но часть дополнительных действий "
-                "не удалось завершить.</b>\n\n"
+                "⚠️ Реклама уже опубликована, но часть дополнительных действий "
+                "не удалось завершить.\n\n"
                 "Основной срок удаления сохранён. Проверьте состояние в канале и "
                 "при необходимости выполните действие вручную.",
                 parse_mode="HTML", reply_markup=advertising_done_keyboard(ad_id),
@@ -695,10 +695,10 @@ async def retry_advertising(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
     if (ad[17] or "post") == "combo":
         await state.set_state(AdvertisingState.wait_combo)
-        await cb.message.edit_text("🎁 <b>Выберите комбо:</b>", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
+        await cb.message.edit_text("🎁 Выберите комбо:", parse_mode="HTML", reply_markup=advertising_combo_keyboard(ad_id))
     else:
         await state.set_state(AdvertisingState.wait_duration)
-        await cb.message.edit_text("⏱ <b>На сколько публиковать пост?</b>", parse_mode="HTML", reply_markup=advertising_duration_keyboard(ad_id))
+        await cb.message.edit_text("⏱ На сколько публиковать пост?", parse_mode="HTML", reply_markup=advertising_duration_keyboard(ad_id))
 
 
 @router.callback_query(F.data.startswith("ad_cancel:"))
@@ -711,7 +711,7 @@ async def cancel_advertising_callback(cb: CallbackQuery, state: FSMContext):
         await cancel_advertising_post(ad_id)
     await state.clear()
     await cb.answer("Отменено")
-    await cb.message.edit_text("❌ <b>Рекламная публикация отменена.</b>", parse_mode="HTML")
+    await cb.message.edit_text("❌ Рекламная публикация отменена.", parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("ad_delete_now:"))
@@ -728,7 +728,7 @@ async def delete_ad_now(cb: CallbackQuery):
         await bot.delete_message(get_setting("MAIN_CHANNEL_ID"), ad[8])
         await finish_advertising_expiry(ad_id, deleted=True)
         await cb.answer("Удалено")
-        await cb.message.edit_text("🗑 <b>Рекламный пост удалён досрочно.</b>", parse_mode="HTML")
+        await cb.message.edit_text("🗑 Рекламный пост удалён досрочно.", parse_mode="HTML")
     except Exception as e:
         await cb.answer("Не удалось удалить пост.", show_alert=True)
         logger.warning("Не удалось досрочно удалить рекламу #%s: %s", ad_id, e)
@@ -745,7 +745,7 @@ async def unpin_ad_now(cb: CallbackQuery):
     try:
         await bot.unpin_chat_message(get_setting("MAIN_CHANNEL_ID"), ad[8])
         await cb.answer("Закреп снят")
-        await cb.message.edit_text("✅ <b>Закреп снят.</b>\n\nРекламный пост продолжит действовать до окончания оплаченного срока.", parse_mode="HTML")
+        await cb.message.edit_text("✅ Закреп снят.\n\nРекламный пост продолжит действовать до окончания оплаченного срока.", parse_mode="HTML")
     except Exception:
         await cb.answer("Не удалось снять закреп.", show_alert=True)
 

@@ -22,7 +22,7 @@ sudo apt-get install tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng
 python main.py
 ```
 
-The local semantic model is downloaded on first startup. Subsequent inference is local.
+The default text classifier is lightweight and local; it does not download a transformer model and uses negligible RAM.
 
 ## 3. Docker
 
@@ -53,6 +53,6 @@ Send a test post and verify the complete flow: moderation → publication → fi
 По умолчанию включён `LOW_MEMORY_MODE=true`: NudeNet загружается только на время
 проверки фото и освобождается после анализа. Локальный ИИ загружается лениво,
 а не при старте, и по умолчанию используется компактная
-`paraphrase-multilingual-MiniLM-L3-v2`. `LOCAL_AI_PRELOAD=false` оставляйте на
+`LOCAL_AI_MODEL=disabled` используется по умолчанию. `LOCAL_AI_PRELOAD=false` оставляйте на
 небольшом VPS. Одновременные AI-инференсы сериализованы, чтобы несколько
 пользователей не создавали большой пик памяти.

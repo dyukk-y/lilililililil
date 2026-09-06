@@ -76,7 +76,7 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         if command.args:
             await state.update_data(pending_deep_link=command.args)
         await msg.answer(
-            f"<b>Для начала вам нужно подписаться</b>\n"
+            f"Для начала вам нужно подписаться\n"
             f"После этого нажмите на кнопку «Я подписался».\n",
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed_required)
@@ -89,11 +89,11 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         return
 
     await msg.answer(
-        "✨ <b>Добро пожаловать в Смотр</b>\n\n"
-        "<blockquote>Место, где можно предложить пост, проверить его статус и быстро найти нужную информацию.</blockquote>\n\n"
-        "📝 <b>Хотите предложить пост?</b>\n"
+        "✨ Добро пожаловать в Смотр\n\n"
+        "Место, где можно предложить пост, проверить его статус и быстро найти нужную информацию.\n\n"
+        "📝 Хотите предложить пост?\n"
         "Нажмите «Предложить пост» и следуйте подсказкам.\n\n"
-        "⚠️ <b>Важно:</b> каждый пост должен начинаться с 🧑, 👩, 🧑 или 👩 либо 👩 или 🧑.\n\n"
+        "⚠️ Важно: каждый пост должен начинаться с 🧑, 👩, 🧑 или 👩 либо 👩 или 🧑.\n\n"
         "Выберите действие ниже 👇",
         parse_mode='HTML',
         reply_markup=main_menu()
@@ -117,7 +117,7 @@ async def check_subscription_callback(cb: CallbackQuery, state: FSMContext):
     
     if unsubscribed_required:
         await cb.message.edit_text(
-            f"<b>Вы еще не подписались 😡</b>\n"
+            f"Вы еще не подписались 😡\n"
             f"После подписки нажмите кнопку «Я подписался» еще раз",
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed_required)
@@ -136,8 +136,8 @@ async def check_subscription_callback(cb: CallbackQuery, state: FSMContext):
             return
 
     await cb.message.edit_text(
-        "✅ <b>Всё готово</b>\n\n"
-        "<blockquote>Подписка подтверждена. Теперь вам доступны все основные функции бота.</blockquote>\n\n"
+        "✅ Всё готово\n\n"
+        "Подписка подтверждена. Теперь вам доступны все основные функции бота.\n\n"
         "📝 Для новой публикации нажмите «Предложить пост».\n"
         "👤 В профиле можно посмотреть свою статистику.\n\n"
         "Выберите действие ниже 👇",

@@ -87,8 +87,8 @@ MAX_POST_LENGTH = _optional_int("MAX_POST_LENGTH", 100)
 # RAM-friendly defaults: L3 is substantially smaller than L12 while retaining
 # multilingual semantic classification. The model is loaded lazily on the
 # first text that actually needs semantic analysis.
-LOCAL_AI_MODEL = os.getenv("LOCAL_AI_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L3-v2")
-LOCAL_AI_REQUIRED = os.getenv("LOCAL_AI_REQUIRED", "true").lower() in ("1", "true", "yes", "on")
+LOCAL_AI_MODEL = os.getenv("LOCAL_AI_MODEL", "disabled")
+LOCAL_AI_REQUIRED = os.getenv("LOCAL_AI_REQUIRED", "false").lower() in ("1", "true", "yes", "on")
 AI_SHADOW_MODE = 1 if os.getenv("AI_SHADOW_MODE", "false").lower() in ("1", "true", "yes", "on") else 0
 LOCAL_AI_PRELOAD = os.getenv("LOCAL_AI_PRELOAD", "false").lower() in ("1", "true", "yes", "on")
 LOCAL_AI_MAX_LENGTH = _optional_int("LOCAL_AI_MAX_LENGTH", 128)

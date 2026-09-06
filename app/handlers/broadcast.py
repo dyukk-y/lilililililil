@@ -35,9 +35,9 @@ def message_to_html(text: str, entities: list = None) -> str:
         original = html_text[start:end]
         
         if entity.type == "bold":
-            replacement = f"<b>{original}</b>"
+            replacement = f"{original}"
         elif entity.type == "italic":
-            replacement = f"<i>{original}</i>"
+            replacement = f"{original}"
         elif entity.type == "underline":
             replacement = f"<u>{original}</u>"
         elif entity.type == "strikethrough":
@@ -70,9 +70,9 @@ async def broadcast_menu_handler(cb: CallbackQuery):
     users_count = await get_users_count()
     
     text = (
-        f"📢 <b>Рассылка сообщений</b>\n\n"
-        f"👥 Всего пользователей: <b>{users_count}</b>\n\n"
-        f"<i>Выберите тип рассылки:</i>"
+        f"📢 Рассылка сообщений\n\n"
+        f"👥 Всего пользователей: {users_count}\n\n"
+        f"Выберите тип рассылки:"
     )
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=broadcast_menu())
@@ -84,17 +84,17 @@ async def broadcast_text_handler(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(BroadcastState.wait_broadcast_text)
     await cb.message.edit_text(
-        "📝 <b>Текстовая рассылка</b>\n\n"
+        "📝 Текстовая рассылка\n\n"
         "Отправьте сообщение для рассылки пользователям.\n\n"
-        "✅ <b>Бот автоматически определит:</b>\n"
+        "✅ Бот автоматически определит:\n"
         "• 🔗 Гиперссылки\n"
         "• ⭐ Премиум эмодзи\n"
-        "• <b>Жирный текст</b>\n"
-        "• <i>Курсив</i>\n"
+        "• Жирный текст\n"
+        "• Курсив\n"
         "• <u>Подчеркнутый</u>\n"
         "• <s>Зачеркнутый</s>\n"
         "• <code>Моноширинный</code>\n\n"
-        "📤 <i>Отправьте сообщение в том виде, в котором оно должно быть отправлено пользователям:</i>",
+        "📤 Отправьте сообщение в том виде, в котором оно должно быть отправлено пользователям:",
         parse_mode='HTML',
         reply_markup=broadcast_cancel_menu()
     )
@@ -127,13 +127,13 @@ async def broadcast_photo_handler(cb: CallbackQuery, state: FSMContext):
     
     await state.set_state(BroadcastState.wait_broadcast_photo)
     await cb.message.edit_text(
-        "📷 <b>Рассылка с фото</b>\n\n"
+        "📷 Рассылка с фото\n\n"
         "Отправьте фото для рассылки.\n\n"
-        "✅ <b>После загрузки фото:</b>\n"
+        "✅ После загрузки фото:\n"
         "1. Бот примет фото\n"
         "2. Вы отправите текст с форматированием\n"
         "3. Бот автоматически определит все гиперссылки и премиум эмодзи\n\n"
-        "📤 <i>Отправьте фото:</i>",
+        "📤 Отправьте фото:",
         parse_mode='HTML',
         reply_markup=broadcast_cancel_menu()
     )
@@ -153,12 +153,12 @@ async def process_broadcast_photo(msg: Message, state: FSMContext):
     
     await state.set_state(BroadcastState.wait_broadcast_text_with_photo)
     await msg.answer(
-        "📝 <b>Добавьте текст к фото</b>\n\n"
+        "📝 Добавьте текст к фото\n\n"
         "Отправьте текст сообщения в том виде, в котором он должен быть:\n"
         "• С гиперссылками\n"
         "• С премиум эмодзи\n"
         "• С форматированием\n\n"
-        "📤 <i>Отправьте текст:</i>",
+        "📤 Отправьте текст:",
         parse_mode='HTML',
         reply_markup=broadcast_cancel_menu()
     )
@@ -194,9 +194,9 @@ async def show_broadcast_preview(msg: Message, state: FSMContext):
     users_count = await get_users_count()
     
     preview_header = (
-        f"📢 <b>Предпросмотр рассылки</b>\n\n"
-        f"👥 Будет отправлено <b>{users_count}</b> пользователям\n\n"
-        f"📝 <b>Сообщение будет выглядеть так:</b>\n\n"
+        f"📢 Предпросмотр рассылки\n\n"
+        f"👥 Будет отправлено {users_count} пользователям\n\n"
+        f"📝 Сообщение будет выглядеть так:\n\n"
     )
     
     try:
@@ -217,7 +217,7 @@ async def show_broadcast_preview(msg: Message, state: FSMContext):
             await msg.answer(f"{preview_header}\n{broadcast_text}")
     
     await msg.answer(
-        "👇 <b>Подтвердите рассылку:</b>",
+        "👇 Подтвердите рассылку:",
         parse_mode='HTML',
         reply_markup=broadcast_confirm_menu()
     )
@@ -250,7 +250,7 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
     await cb.message.delete()
     
     status_msg = await cb.message.answer(
-        f"📢 <b>Рассылка началась!</b>\n\n"
+        f"📢 Рассылка началась!\n\n"
         f"👥 Всего пользователей: {total_users}\n"
         f"✅ Отправлено: 0/{total_users}\n"
         f"❌ Ошибок: 0\n"
@@ -324,7 +324,7 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
             progress = int((i / total_users) * 100)
             try:
                 await status_msg.edit_text(
-                    f"📢 <b>Рассылка в процессе...</b>\n\n"
+                    f"📢 Рассылка в процессе...\n\n"
                     f"👥 Всего пользователей: {total_users}\n"
                     f"✅ Отправлено: {success_count}/{total_users}\n"
                     f"❌ Ошибок: {error_count}\n"
@@ -337,7 +337,7 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
         await asyncio.sleep(0.05)
     
     await status_msg.edit_text(
-        f"📢 <b>Рассылка завершена!</b>\n\n"
+        f"📢 Рассылка завершена!\n\n"
         f"👥 Всего пользователей: {total_users}\n"
         f"✅ Успешно отправлено: {success_count}\n"
         f"❌ Ошибок: {error_count}\n"

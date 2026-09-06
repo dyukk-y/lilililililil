@@ -38,7 +38,7 @@ async def present_delete_prompt(msg: Message, state: FSMContext, post_id: int) -
     await state.update_data(post_id=post_id)
     await state.set_state(DeletePostState.wait_reason)
     await msg.answer(
-        "📝 <b>Опишите причину для удаления поста:</b>",
+        "📝 Опишите причину для удаления поста:",
         parse_mode='HTML',
         reply_markup=cancel_to_menu_keyboard()
     )
@@ -51,7 +51,7 @@ async def delete_post_request_start(cb: CallbackQuery, state: FSMContext):
 
     await state.set_state(DeletePostState.wait_post_link)
     await cb.message.edit_text(
-        "🗑 <b>Удаление поста</b>\n\n"
+        "🗑 Удаление поста\n\n"
         "Пришлите ссылку на пост в канале (вида <code>https://t.me/канал/123</code>) "
         "или просто перешлите этот пост сюда из канала.",
         parse_mode='HTML',

@@ -51,7 +51,7 @@ def menu_navigation_keyboard(back_callback: str = "menu"):
 
 def cancel_to_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="ad_abort")]
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_action")]
     ])
 
 def rules_keyboard():

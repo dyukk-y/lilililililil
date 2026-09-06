@@ -3,7 +3,7 @@ import logging
 
 from aiogram.types import CallbackQuery, Message
 
-from app.config import ADMINS, DELETION_REVIEWERS
+from app.config import DELETION_REVIEWERS
 from app.runtime_settings import get as get_setting
 from app.database import is_banned, update_user_subscription_status
 from app.keyboards import get_subscription_keyboard
@@ -17,21 +17,8 @@ from app.validators import (
 
 logger = logging.getLogger(__name__)
 
-def _env_admin_ids() -> set[int]:
-    import os
-    raw = os.getenv("ADMINS", "")
-    result = set()
-    for part in raw.replace("\ufeff", "").replace("\n", ",").split(","):
-        part = part.strip()
-        if part:
-            try:
-                result.add(int(part))
-            except ValueError:
-                pass
-    return result
+from app.auth import is_admin as _is_admin
 
-def _is_admin(user_id: int) -> bool:
-    return user_id in _env_admin_ids() or user_id in ADMINS
 
 
 class ErrorHandlingMiddleware:

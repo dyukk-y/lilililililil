@@ -15,19 +15,7 @@ from app.services import *
 router = Router()
 
 
-def _is_admin(user_id: int) -> bool:
-    """Проверка админа: приоритет актуальной переменной ADMINS из окружения."""
-    import os
-    raw = os.getenv("ADMINS", "")
-    env_ids = set()
-    for part in raw.replace("\\ufeff", "").replace("\\n", ",").split(","):
-        part = part.strip()
-        if part:
-            try:
-                env_ids.add(int(part))
-            except ValueError:
-                pass
-    return user_id in env_ids or user_id in ADMINS
+from app.auth import is_admin as _is_admin
 
 # ================== ADMIN PANEL ==================
 async def _admin_panel_text() -> str:

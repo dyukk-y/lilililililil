@@ -20,7 +20,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from app.config import ADMINS, TIMEZONE
+from app.config import TIMEZONE
 from app.database import (
     cancel_advertising_post,
     create_advertising_post,
@@ -53,6 +53,7 @@ from app.keyboards import (
 )
 from app.loader import bot, logger
 from app.runtime_settings import get as get_setting
+from app.auth import is_admin
 from app.states import AdvertisingState
 
 router = Router()
@@ -69,7 +70,7 @@ DT_RE = re.compile(r"^\s*(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})\s+(\d{1,2}):(\d{2
 
 
 def _is_admin(obj) -> bool:
-    return obj.from_user.id in ADMINS
+    return is_admin(obj.from_user.id)
 
 
 def _hours_label(hours: int) -> str:

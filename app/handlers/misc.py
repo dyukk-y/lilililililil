@@ -15,6 +15,22 @@ from app.services import *
 
 router = Router()
 
+# ================== UNIVERSAL CANCEL ==================
+@router.callback_query(F.data == "cancel_action")
+async def cancel_action(cb: CallbackQuery, state: FSMContext):
+    """Универсальная отмена пользовательских сценариев.
+
+    Кнопка намеренно не требует админских прав: она используется в
+    сценариях «Удалить запись» и «Узнать автора» и должна быть доступна
+    любому пользователю, которому эти сценарии доступны.
+    """
+    await state.clear()
+    await cb.answer("Отменено")
+    await cb.message.edit_text(
+        "🏠 Действие отменено.",
+        reply_markup=main_menu(),
+    )
+
 # ================== RULES ==================
 @router.callback_query(F.data == "rules")
 async def rules(cb: CallbackQuery):

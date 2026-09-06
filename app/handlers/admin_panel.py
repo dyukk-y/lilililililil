@@ -1,4 +1,5 @@
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.types import *
 
 
@@ -12,6 +13,21 @@ from app.validators import *
 from app.services import *
 
 router = Router()
+
+
+def _is_admin(user_id: int) -> bool:
+    """Проверка админа: приоритет актуальной переменной ADMINS из окружения."""
+    import os
+    raw = os.getenv("ADMINS", "")
+    env_ids = set()
+    for part in raw.replace("\\ufeff", "").replace("\\n", ",").split(","):
+        part = part.strip()
+        if part:
+            try:
+                env_ids.add(int(part))
+            except ValueError:
+                pass
+    return user_id in env_ids or user_id in ADMINS
 
 # ================== ADMIN PANEL ==================
 async def _admin_panel_text() -> str:
@@ -36,9 +52,9 @@ async def _admin_panel_text() -> str:
     )
 
 
-@router.message(F.text == "/admin")
+@router.message(Command("admin"))
 async def admin_panel_command(msg: Message):
-    if msg.from_user.id not in ADMINS:
+    if not _is_admin(msg.from_user.id):
         return await msg.answer("🚫 У вас нет доступа к этой команде.")
     
     await msg.answer(
@@ -48,7 +64,7 @@ async def admin_panel_command(msg: Message):
 
 @router.callback_query(F.data == "admin_panel")
 async def admin_panel_callback(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     await cb.message.edit_text(
@@ -58,7 +74,7 @@ async def admin_panel_callback(cb: CallbackQuery):
 
 @router.callback_query(F.data == "blacklist")
 async def blacklist_panel(cb: CallbackQuery):
-    if cb.from_user.id not in ADMINS:
+    if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     banned_users, _ = await get_banned_users(page=1, per_page=1)

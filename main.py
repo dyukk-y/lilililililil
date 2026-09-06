@@ -65,6 +65,8 @@ ROUTERS = (
 
 async def main() -> None:
     logger.info("Запуск бота...")
+    from app.config import ADMINS
+    logger.info("ADMINS для проверки доступа: %s", ADMINS)
     await init_db()
 
     # Динамические настройки (цены, лимиты, ID чатов и т.д.) — читаются из

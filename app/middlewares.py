@@ -17,6 +17,22 @@ from app.validators import (
 
 logger = logging.getLogger(__name__)
 
+def _env_admin_ids() -> set[int]:
+    import os
+    raw = os.getenv("ADMINS", "")
+    result = set()
+    for part in raw.replace("\ufeff", "").replace("\n", ",").split(","):
+        part = part.strip()
+        if part:
+            try:
+                result.add(int(part))
+            except ValueError:
+                pass
+    return result
+
+def _is_admin(user_id: int) -> bool:
+    return user_id in _env_admin_ids() or user_id in ADMINS
+
 
 class ErrorHandlingMiddleware:
     """
@@ -64,7 +80,7 @@ class ChatValidationMiddleware:
 
     async def __call__(self, handler, event, data):
         if isinstance(event, CallbackQuery):
-            if event.from_user.id in ADMINS:
+            if _is_admin(event.from_user.id):
                 for cmd in self.ADMIN_PANEL_CALLBACKS:
                     if event.data.startswith(cmd):
                         return await handler(event, data)
@@ -110,7 +126,7 @@ class ChatValidationMiddleware:
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
         if hasattr(event, "from_user") and (
-            event.from_user.id in ADMINS or event.from_user.id in DELETION_REVIEWERS
+            _is_admin(event.from_user.id) or event.from_user.id in DELETION_REVIEWERS
         ):
             return await handler(event, data)
 

@@ -35,7 +35,7 @@ def main_menu():
 
 def profile_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❤️ Пожертвовать", callback_data="donate")],
+        [InlineKeyboardButton(text="💛 Пожертвовать", callback_data="donate")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 

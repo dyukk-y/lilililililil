@@ -211,6 +211,18 @@ git (например, через `git filter-repo`), а не только из 
 (безопасность конфигурации, структура проекта, защита от гонки при
 модерации, индексы БД, обработка ошибок и т.д.).
 
+## Тесты
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
+```
+
+Тесты не ходят в сеть: Telegram API подменяется фейковой сессией, БД
+создаётся во временной папке. Те же тесты запускаются в GitHub Actions
+(`.github/workflows/tests.yml`) на каждый push.
+
+
 ## Лицензия
 
 MIT

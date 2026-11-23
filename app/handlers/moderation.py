@@ -15,6 +15,8 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.auth import is_admin as _is_admin
+from app.utils import h
 
 router = Router()
 
@@ -181,9 +183,13 @@ async def reject(cb: CallbackQuery, state: FSMContext):
             return await cb.answer("Пост не найден", show_alert=True)
         
         post_text, photo = row
-        original_text = cb.message.caption if photo else cb.message.text
+        # html_text сохраняет разметку карточки (жирный, цитаты) и
+        # экранирует пользовательский текст. Раньше брался «голый» text —
+        # форматирование терялось, а символы "<"/"&" в тексте поста ломали
+        # последующее редактирование карточки.
+        original_text = cb.message.html_text if (cb.message.text or cb.message.caption) else ""
         if not original_text:
-            original_text = f"Пост #{pid}\n\n{post_text}"
+            original_text = f"Пост #{pid}\n\n{h(post_text)}"
 
     await state.set_state(RejectState.wait_reason)
     await state.update_data(
@@ -259,12 +265,16 @@ async def reject_reason(msg: Message, state: FSMContext):
             text="⚠️ Время на указание причины истекло. Действие отменено."
         )
     
+    reason_text = (msg.text or msg.caption or "").strip()
+    if not reason_text:
+        return await msg.answer("❌ Причина должна быть текстом. Опишите причину отказа.")
+
     await state.clear()
 
     # Общая services.reject_post: атомарный переход статуса, обновление
     # карточки у администраторов и уведомление автора — всё в одном месте,
     # без дублирования логики (как было раньше).
-    ok = await reject_post(pid, moderator_id=msg.from_user.id, reason=msg.text)
+    ok = await reject_post(pid, moderator_id=msg.from_user.id, reason=reason_text)
     if not ok:
         return await msg.answer("⚠️ Этот пост уже был обработан другим модератором.")
 
@@ -300,3 +310,54 @@ async def reject_reason(msg: Message, state: FSMContext):
 @router.callback_query(F.data == "disabled")
 async def disabled_button_handler(cb: CallbackQuery):
     await cb.answer("❌ Это действие недоступно - пост уже был обработан модератором", show_alert=True)
+
+
+# ================== ДИАГНОСТИКА ИИ ==================
+# Кнопки «🤖 Почему ИИ так решил?» (карточка модерации) и «🤖 ИИ ошибся»
+# (итог у администраторов) раньше не имели обработчиков — нажатие
+# бесконечно «крутилось» без ответа.
+@router.callback_query(F.data.startswith("why_ai_"))
+async def why_ai(cb: CallbackQuery):
+    try:
+        post_id = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный ID поста", show_alert=True)
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT ai_score, ai_confidence, ai_decision, ai_reason FROM posts WHERE id=?",
+            (post_id,),
+        )
+        row = await cur.fetchone()
+    if not row:
+        return await cb.answer("❌ Пост не найден.", show_alert=True)
+
+    score, confidence, decision, reason = row
+    if score is None:
+        return await cb.answer("🤖 Анализ ИИ для этого поста не сохранён.", show_alert=True)
+
+    decision_label = "автопубликация" if decision == "auto" else "ручная проверка"
+    text = (
+        f"🤖 Пост #{post_id}\n"
+        f"Оценка: {float(score):.0f}/100, уверенность {float(confidence or 0):.0%}\n"
+        f"Решение: {decision_label}\n"
+        f"Причина: {reason or '—'}"
+    )
+    # Всплывающее окно Telegram ограничено 200 символами.
+    if len(text) > 200:
+        text = text[:197] + "..."
+    await cb.answer(text, show_alert=True)
+
+
+@router.callback_query(F.data.startswith("ai_error_"))
+async def ai_error(cb: CallbackQuery):
+    try:
+        post_id = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный ID поста", show_alert=True)
+
+    if not await mark_ai_error(post_id, cb.from_user.id):
+        if not _is_admin(cb.from_user.id):
+            return await cb.answer("🚫 Отметить ошибку ИИ может только администратор.", show_alert=True)
+        return await cb.answer("ℹ️ Вы уже отмечали ошибку ИИ для этого поста.", show_alert=True)
+    await cb.answer("✅ Спасибо! Ошибка ИИ учтена.", show_alert=True)

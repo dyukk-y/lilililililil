@@ -796,6 +796,22 @@ async def remove_from_publication_blacklist(keyword: str) -> bool:
         return True
 
 
+async def remove_from_publication_blacklist_exact(keyword: str) -> bool:
+    """Удаляет запись ровно в том виде, как она хранится в БД.
+
+    Часть стандартных стоп-слов намеренно хранится с пробелом на конце
+    ("лох ", "хер ") — чтобы не ловить их внутри других слов. Обычный
+    remove_from_publication_blacklist делает strip(), поэтому такие слова
+    раньше удалить из админ-панели было невозможно.
+    """
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("DELETE FROM publication_blacklist WHERE keyword=?", (keyword,))
+        if cur.rowcount == 0:
+            await db.execute("DELETE FROM publication_blacklist WHERE keyword=?", (keyword.strip().lower(),))
+        await db.commit()
+        return True
+
+
 async def get_publication_blacklist(page: int = 1, per_page: int = 5) -> Tuple[list, int]:
     offset = (page - 1) * per_page
     async with aiosqlite.connect(DB_NAME) as db:
@@ -812,7 +828,9 @@ async def get_publication_blacklist(page: int = 1, per_page: int = 5) -> Tuple[l
 
 
 async def is_in_publication_blacklist(text: str) -> Tuple[bool, str]:
-    text_lower = text.lower()
+    # Пробел в конце нужен для стоп-слов, хранящихся с пробелом ("лох "):
+    # раньше слово в самом конце текста ("ты лох") не ловилось.
+    text_lower = (text or "").lower() + " "
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute("SELECT keyword FROM publication_blacklist")
         rows = await cur.fetchall()
@@ -958,11 +976,15 @@ async def create_post(user_id: int, text: str, photo: Optional[str], photo_hash:
 
 
 async def posts_today(user_id: int) -> int:
-    today = datetime.now(TIMEZONE).date().isoformat()
+    # Диапазон по времени вместо date(time)=? — так запрос использует индекс
+    # idx_posts_user_time, а не перебирает все посты пользователя.
+    today = datetime.now(TIMEZONE).date()
+    start = today.isoformat()
+    end = (today + timedelta(days=1)).isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         cur = await db.execute(
-            "SELECT COUNT(*) FROM posts WHERE user_id=? AND date(time)=?",
-            (user_id, today),
+            "SELECT COUNT(*) FROM posts WHERE user_id=? AND time>=? AND time<?",
+            (user_id, start, end),
         )
         row = await cur.fetchone()
         return row[0] if row else 0

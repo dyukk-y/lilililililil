@@ -15,7 +15,6 @@ import asyncio
 import logging
 import os
 import random
-import shutil
 from datetime import datetime, timedelta
 from datetime import time as dt_time
 from typing import Awaitable, Callable, Optional
@@ -179,18 +178,39 @@ async def rebalance_loop() -> None:
         await asyncio.sleep(900)  # каждые 15 минут
 
 
-async def make_backup() -> str:
-    """Делает checkpoint WAL-журнала и копирует файл БД в BACKUP_DIR,
-    ротируя старые копии (оставляя последние BACKUP_KEEP_LAST)."""
-    os.makedirs(BACKUP_DIR, exist_ok=True)
+def _backup_sync(target_path: str) -> None:
+    """Консистентная копия БД через SQLite Online Backup API.
 
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        await db.commit()
+    Раньше файл копировался через shutil.copy2 прямо во время работы бота:
+    если в этот момент шла запись, резервная копия могла оказаться
+    повреждённой (а WAL-журнал в неё не попадал вовсе). backup() делает
+    корректный снимок даже при параллельной записи.
+    """
+    import sqlite3
+
+    tmp_path = target_path + ".part"
+    src = sqlite3.connect(DB_NAME, timeout=30)
+    try:
+        dst = sqlite3.connect(tmp_path)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+    finally:
+        src.close()
+    os.replace(tmp_path, target_path)
+
+
+async def make_backup() -> str:
+    """Делает консистентный снимок БД в BACKUP_DIR, ротируя старые копии
+    (оставляя последние BACKUP_KEEP_LAST)."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
 
     timestamp = datetime.now(TIMEZONE).strftime("%Y%m%d_%H%M%S")
     backup_path = os.path.join(BACKUP_DIR, f"smotrbot_{timestamp}.db")
-    shutil.copy2(DB_NAME, backup_path)
+    # Копирование большого файла — блокирующая операция, выполняем в потоке,
+    # чтобы бот продолжал отвечать пользователям.
+    await asyncio.to_thread(_backup_sync, backup_path)
     logger.info(f"Резервная копия БД сохранена: {backup_path}")
 
     backups = sorted(
@@ -312,8 +332,12 @@ async def advertising_expiry_loop() -> None:
                         try:
                             await bot.delete_message(get_setting("MAIN_CHANNEL_ID"), channel_message_id)
                         except Exception as e:
-                            logger.warning("Не удалось удалить рекламный пост #%s: %s", ad_id, e)
-                            continue
+                            # Если пост уже удалён вручную, раньше бот пытался
+                            # удалить его заново каждые 20 секунд бесконечно.
+                            if "message to delete not found" not in str(e).lower():
+                                logger.warning("Не удалось удалить рекламный пост #%s: %s", ad_id, e)
+                                continue
+                            logger.info("Рекламный пост #%s уже был удалён вручную", ad_id)
                         await finish_advertising_expiry(ad_id, deleted=True)
                         logger.info("Рекламный пост #%s удалён по истечении срока", ad_id)
                     elif pin_expires and now >= pin_expires:

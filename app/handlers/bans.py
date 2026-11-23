@@ -14,6 +14,7 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.utils import h
 
 router = Router()
 
@@ -23,7 +24,9 @@ async def ban_command(msg: Message):
     if not _is_admin(msg.from_user.id):
         return
     
-    parts = msg.text.split(maxsplit=2)
+    parts = (msg.text or "").split(maxsplit=2)
+    if parts and parts[0].split("@", 1)[0] != "/ban":
+        return  # например, /banned — не наша команда
     if len(parts) < 2:
         return await msg.answer(
             "❌ <b>Использование:</b> <code>/ban &lt;user_id&gt; [причина]</code>\n\n"
@@ -51,8 +54,8 @@ async def ban_command(msg: Message):
             await bot.send_message(
                 user_id,
                 f"🚫 <b>Вы были заблокированы!</b>\n\n"
-                f"📝 <b>Причина:</b> {reason}\n"
-                f"👮 <b>Администратор:</b> @{msg.from_user.username or 'без username'}\n"
+                f"📝 <b>Причина:</b> {h(reason)}\n"
+                f"👮 <b>Администратор:</b> @{h(msg.from_user.username or 'без username')}\n"
                 f"🆔 <b>ID администратора:</b> {msg.from_user.id}\n\n"
                 f"🔒 <b>Вы больше не можете использовать меню бота</b>\n\n"
                 f"📞 <b>Для разблокировки:</b> Свяжитесь с @theaugustine, "
@@ -65,7 +68,7 @@ async def ban_command(msg: Message):
         
         await msg.answer(
             f"✅ Пользователь <code>{user_id}</code> заблокирован.\n"
-            f"📝 <b>Причина:</b> {reason}",
+            f"📝 <b>Причина:</b> {h(reason)}",
             parse_mode='HTML'
         )
         
@@ -77,7 +80,9 @@ async def unban_command(msg: Message):
     if not _is_admin(msg.from_user.id):
         return
     
-    parts = msg.text.split()
+    parts = (msg.text or "").split()
+    if parts and parts[0].split("@", 1)[0] != "/unban":
+        return
     if len(parts) < 2:
         return await msg.answer(
             "❌ <b>Использование:</b> <code>/unban &lt;user_id&gt;</code>\n\n"
@@ -99,7 +104,7 @@ async def unban_command(msg: Message):
                 user_id,
                 "✅ <b>Вы были разблокированы!</b>\n\n"
                 "🔓 Теперь вы снова можете использовать бота.\n"
-                f"👮 <b>Администратор:</b> @{msg.from_user.username or 'без username'}\n",
+                f"👮 <b>Администратор:</b> @{h(msg.from_user.username or 'без username')}\n",
                 parse_mode='HTML'
             )
         except Exception as e:
@@ -134,20 +139,21 @@ async def show_banned_users_page(cb: CallbackQuery, page: int):
     for i, (user_id, reason, ban_time, admin_username, username) in enumerate(banned_users, start_idx):
         try:
             time_str = datetime.fromisoformat(ban_time).strftime('%d.%m.%Y %H:%M')
-        except:
+        except (TypeError, ValueError):
             time_str = ban_time
         
         text_lines.append(f"<b>{i}. 🆔 <code>{user_id}</code></b>")
-        text_lines.append(f"   📛 @{username or 'без username'}")
-        text_lines.append(f"   📝 <b>Причина:</b> {reason}")
+        text_lines.append(f"   📛 @{h(username or 'без username')}")
+        text_lines.append(f"   📝 <b>Причина:</b> {h(reason)}")
         if admin_username:
-            text_lines.append(f"   👮 <b>Админ:</b> @{admin_username}")
+            text_lines.append(f"   👮 <b>Админ:</b> @{h(admin_username)}")
         text_lines.append(f"   🕐 <b>Заблокирован:</b> {time_str}\n")
     
     text = "\n".join(text_lines)
     
     if len(text) > 4000:
-        text = text[:4000] + "\n\n... (список слишком длинный)"
+        # Режем по строкам, чтобы не разорвать HTML-тег посередине.
+        text = "\n".join(text_lines[:-5]) + "\n\n... (список слишком длинный)"
     
     await cb.message.edit_text(
         text, 

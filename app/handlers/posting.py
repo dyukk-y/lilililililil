@@ -12,16 +12,31 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.utils import h
 
 router = Router()
+
+
+def _daily_limit() -> int:
+    return get_setting("USER_DAILY_POST_LIMIT")
+
+
+async def _limit_reached(user_id: int) -> bool:
+    """Дневной лимит постов (настройка USER_DAILY_POST_LIMIT, раньше было
+    жёстко зашито число 5 и настройка из админ-панели ни на что не влияла)."""
+    return await posts_today(user_id) >= _daily_limit()
+
+
+def _limit_text() -> str:
+    return f"🔒 Лимит: {_daily_limit()} постов в день."
 
 # ================== OFFER ==================
 @router.callback_query(F.data == "offer")
 async def offer(cb: CallbackQuery):
     if await is_banned(cb.from_user.id):
         return await cb.answer("🚫 Вы заблокированы.", show_alert=True)
-    if await posts_today(cb.from_user.id) >= 5:
-        return await cb.answer("🔒 Лимит: 5 постов в день.", show_alert=True)
+    if await _limit_reached(cb.from_user.id):
+        return await cb.answer(_limit_text(), show_alert=True)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📷 С фото", callback_data="with_photo")],
@@ -88,20 +103,39 @@ async def get_text_after_photo(msg: Message, state: FSMContext):
     if await is_banned(msg.from_user.id):
         return await msg.answer("🚫 Вы заблокированы и не можете отправлять посты.")
 
+    if msg.photo:
+        # Пользователь прислал другое фото вместо текста — заменяем фото
+        # (с подписью — сразу обрабатываем как готовый пост).
+        await state.update_data(photo=msg.photo[-1].file_id)
+        if msg.caption:
+            return await _finalize_photo_post(msg, state, msg.caption)
+        return await msg.answer("✅ Фото заменено. Теперь пришлите текст к фото.", reply_markup=back_to_post_type())
+
+    if not msg.text:
+        return await msg.answer("❗ Пришлите текст поста обычным сообщением.", reply_markup=back_to_post_type())
+
     await _finalize_photo_post(msg, state, msg.text)
 
 
 async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> None:
     """Общая логика для фото-поста: применяется и когда текст пришёл сразу
     подписью к фото, и когда пришёл отдельным следующим сообщением."""
-    if not await _passes_auto_checks(msg, state, text):
+    if not await _passes_auto_checks(msg, state, text, has_photo=True):
         return
 
     data = await state.get_data()
+    if not data.get("photo"):
+        await state.clear()
+        return await msg.answer("⚠️ Фото потерялось, начните заново.", reply_markup=menu_btn())
 
     checking_msg = await msg.answer("🔎 Проверяю фото...")
-    is_explicit, nsfw_class, nsfw_score = await screen_photo(data["photo"])
-    await checking_msg.delete()
+    try:
+        is_explicit, nsfw_class, nsfw_score = await screen_photo(data["photo"])
+    finally:
+        try:
+            await checking_msg.delete()
+        except Exception:
+            pass
 
     if is_explicit:
         await msg.answer(
@@ -120,7 +154,7 @@ async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> No
     logger.info(f"Создан пост #{post_id} с фото от пользователя {msg.from_user.id}")
 
     await _notify_submitted(msg, post_id)
-    await route_new_post(post_id)
+    await _route_safely(post_id, photo_checked=True)
     await log("new_post", f"photo post #{post_id} from user {msg.from_user.id}")
 
 # ================== NO PHOTO ==================
@@ -141,6 +175,9 @@ async def get_text_only(msg: Message, state: FSMContext):
     if await is_banned(msg.from_user.id):
         return await msg.answer("🚫 Вы заблокированы и не можете отправлять посты.")
 
+    if not msg.text:
+        return await msg.answer("❗ Пришлите текст поста обычным сообщением.", reply_markup=back_to_previous())
+
     if not await _passes_auto_checks(msg, state, msg.text):
         return
 
@@ -150,8 +187,19 @@ async def get_text_only(msg: Message, state: FSMContext):
     logger.info(f"Создан текстовый пост #{post_id} от пользователя {msg.from_user.id}")
 
     await _notify_submitted(msg, post_id)
-    await route_new_post(post_id)
+    await _route_safely(post_id)
     await log("new_post", f"text post #{post_id} from user {msg.from_user.id}")
+
+
+async def _route_safely(post_id: int, photo_checked: bool = False) -> None:
+    """Маршрутизация уже сохранённого поста. Пользователю к этому моменту
+    уже сказано «пост отправлен на модерацию», поэтому сбой здесь не должен
+    превращаться в сообщение об ошибке: пост лежит в БД и будет
+    дообработан recover_pending_posts при следующем запуске."""
+    try:
+        await route_new_post(post_id, photo_checked=photo_checked)
+    except Exception:
+        logger.exception("Не удалось маршрутизировать пост #%s — будет восстановлен при перезапуске", post_id)
 
 
 # ================== ЕДИНОЕ УВЕДОМЛЕНИЕ О ПРИЁМЕ ПОСТА ==================
@@ -171,7 +219,7 @@ async def _notify_submitted(msg: Message, post_id: int) -> None:
 
 
 # ================== ОБЩИЕ АВТОМАТИЧЕСКИЕ ПРОВЕРКИ ПЕРЕД СОЗДАНИЕМ ПОСТА ==================
-async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> bool:
+async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_photo: bool = False) -> bool:
     """Стоп-слова (маты/оскорбления/спам) + валидация текста (в т.ч. минимум
     3 слова, обязательный эмодзи 🧑/👩) + проверка на осмысленность +
     проверка на повторяющийся (нечётко похожий) текст.
@@ -183,12 +231,21 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
 
     Возвращает False, если пост нужно отклонить ещё до создания записи в
     БД (пользователю уже отправлен ответ)."""
+    text = text or ""
+
+    # Лимит проверяется и здесь, а не только при нажатии «Предложить пост»:
+    # иначе его можно было обойти, открыв несколько диалогов заранее.
+    if await _limit_reached(msg.from_user.id):
+        await state.clear()
+        await msg.answer(_limit_text(), reply_markup=menu_btn())
+        return False
+
     is_blacklisted, keyword = await is_in_publication_blacklist(text)
     if is_blacklisted:
         await msg.answer(
             f"❌ <b>Публикация отклонена</b>\n\n"
             f"Текст содержит запрещённое слово/фразу (маты, оскорбления или спам): "
-            f"<code>{keyword}</code>",
+            f"<code>{h(keyword.strip())}</code>",
             parse_mode='HTML',
             reply_markup=menu_btn()
         )
@@ -196,7 +253,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str) -> boo
         await state.clear()
         return False
 
-    is_valid, error_message = validate_post_text(text)
+    is_valid, error_message = validate_post_text(text, has_photo=has_photo)
     if not is_valid:
         await msg.answer(
             error_message,
@@ -243,8 +300,8 @@ async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
     
     if await is_banned(cb.from_user.id):
         return await cb.answer("🚫 Вы заблокированы.", show_alert=True)
-    if await posts_today(cb.from_user.id) >= 5:
-        return await cb.answer("🔒 Лимит: 5 постов в день.", show_alert=True)
+    if await _limit_reached(cb.from_user.id):
+        return await cb.answer(_limit_text(), show_alert=True)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📷 С фото", callback_data="with_photo")],

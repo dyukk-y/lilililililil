@@ -158,8 +158,15 @@ async def load_settings() -> None:
 
             if key in _INPLACE_LIST_TARGETS:
                 target = _INPLACE_LIST_TARGETS[key]()
+                # ВАЖНО: копия ДО clear(). Значение по умолчанию — это тот
+                # же самый объект списка из app.config, и раньше clear()
+                # опустошал его, а extend() добавлял уже пустой список. Итог:
+                # ADMINS в памяти всегда был пуст (уведомления о платном
+                # приоритете не уходили ни одному администратору), а
+                # DELETION_REVIEWERS — пуст после первого запуска.
+                new_items = list(value)
                 target.clear()
-                target.extend(value)
+                target.extend(new_items)
                 SETTINGS[key] = target
             else:
                 SETTINGS[key] = value
@@ -228,12 +235,11 @@ async def set_value(key: str, raw_value: str) -> Tuple[bool, str]:
     if key.endswith("_LABEL") and len(parsed) > 32:
         return False, "Текст кнопки слишком длинный — максимум 32 символа, чтобы он полностью помещался"
 
-    if key in ("PUBLISH_WINDOW_START_HOUR", "PUBLISH_WINDOW_END_HOUR", "PUBLISH_WINDOW_END_MINUTE"):
-        start_hour = parsed if key == "PUBLISH_WINDOW_START_HOUR" else get("PUBLISH_WINDOW_START_HOUR")
-        end_hour = parsed if key == "PUBLISH_WINDOW_END_HOUR" else get("PUBLISH_WINDOW_END_HOUR")
-        end_minute = parsed if key == "PUBLISH_WINDOW_END_MINUTE" else get("PUBLISH_WINDOW_END_MINUTE")
-        if start_hour == end_hour and end_minute == 0:
-            return False, "Окно публикации не может иметь нулевую длительность"
+    # Пустой список администраторов = никто не сможет зайти в админ-панель.
+    if key == "ADMINS" and not parsed:
+        return False, "Список администраторов не может быть пустым"
+    if key == "MAIN_CHANNEL_ID" and parsed == 0:
+        return False, "ID основного канала обязателен"
 
     if key in ("PUBLISH_WINDOW_START_HOUR", "PUBLISH_WINDOW_END_HOUR", "PUBLISH_WINDOW_END_MINUTE"):
         start_hour = parsed if key == "PUBLISH_WINDOW_START_HOUR" else get("PUBLISH_WINDOW_START_HOUR")
@@ -245,8 +251,9 @@ async def set_value(key: str, raw_value: str) -> Tuple[bool, str]:
 
     if key in _INPLACE_LIST_TARGETS:
         target = _INPLACE_LIST_TARGETS[key]()
+        new_items = list(parsed)
         target.clear()
-        target.extend(parsed)
+        target.extend(new_items)
         SETTINGS[key] = target
     else:
         SETTINGS[key] = parsed

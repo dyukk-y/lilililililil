@@ -20,10 +20,8 @@ from app.auth import is_admin as _is_admin
 # ================== ADMIN PANEL ==================
 async def _admin_panel_text() -> str:
     users_count = await get_users_count()
-    banned_users, _ = await get_banned_users(page=1, per_page=1)
-    banned_count = len(banned_users) if banned_users else 0
-    blacklist, _ = await get_publication_blacklist(page=1, per_page=100)
-    blacklist_count = len(blacklist) if blacklist else 0
+    _, banned_count = await get_banned_users(page=1, per_page=1)
+    _, blacklist_count = await get_publication_blacklist(page=1, per_page=1)
     subscription_count = len(REQUIRED_SUBSCRIPTIONS)
 
     return (
@@ -65,10 +63,8 @@ async def blacklist_panel(cb: CallbackQuery):
     if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
-    banned_users, _ = await get_banned_users(page=1, per_page=1)
-    banned_count = len(banned_users) if banned_users else 0
-    blacklist, _ = await get_publication_blacklist(page=1, per_page=1)
-    blacklist_count = len(blacklist) if blacklist else 0
+    _, banned_count = await get_banned_users(page=1, per_page=1)
+    _, blacklist_count = await get_publication_blacklist(page=1, per_page=1)
     
     text = (
         f"🚫 <b>Заблокированные пользователи и стоп-слова</b>\n\n"

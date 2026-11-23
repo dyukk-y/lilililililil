@@ -8,7 +8,7 @@ import asyncio
 from app.auth import is_admin as _is_admin
 import logging
 import re
-from html import escape
+from html import escape, unescape
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 
@@ -42,9 +42,11 @@ from app.keyboards import (
 )
 from app.scheduler import pick_schedule_slot, rebalance_daily_queue
 from app.moderation_photo import check_photo_nsfw, photo_detector_available
+from app.utils import CAPTION_LIMIT, TEXT_LIMIT, h, shorten
 
 logger = logging.getLogger(__name__)
 
+_TAG_RE = re.compile(r"<[^>]+>")
 _MENTION_RE = re.compile(r"@([A-Za-z0-9_]{5,32})")
 _TME_PUBLIC_RE = re.compile(r"t\.me/([A-Za-z0-9_]+)/(\d+)")
 _TME_PRIVATE_RE = re.compile(r"t\.me/c/(\d+)/(\d+)")
@@ -60,8 +62,10 @@ async def check_subscription(user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     unsubscribed = []
     # Временные рекламные подписки живут отдельно от постоянных и
     # автоматически исчезают после оплаченного срока.
+    # Просроченные записи помечает фоновый advertising_expiry_loop, а выборка
+    # ниже и так берёт только действующие (expires_at > now) — поэтому здесь
+    # не нужна запись в БД на каждое сообщение пользователя.
     try:
-        await expire_advertising_subscriptions()
         temporary_subs = await get_active_advertising_subscriptions()
     except Exception:
         logger.exception("Не удалось загрузить временные рекламные подписки")
@@ -143,15 +147,21 @@ async def notify_admins_outcome(post_id: int, status: str, reason: Optional[str]
             else:
                 return
 
-            admin_text = (
-                f"{header}\n\n"
-                f"📄 <b>Текст:</b>\n{escape(text or '')}\n\n"
-                f"👤 <b>Автор:</b> @{escape(username or 'без username')}\n"
+            limit = CAPTION_LIMIT if photo else TEXT_LIMIT
+            footer = (
+                f"\n\n👤 <b>Автор:</b> @{h(username or 'без username')}\n"
                 f"🆔 <b>ID автора:</b> <code>{user_id}</code>"
             )
-
             if status == "rejected" and reason:
-                admin_text += f"\n📝 <b>Причина:</b> {reason}"
+                footer += f"\n📝 <b>Причина:</b> {h(shorten(reason, 300))}"
+            # Текст поста обрезаем так, чтобы карточка гарантированно влезла
+            # в лимит Telegram (1024 символа для подписи к фото).
+            budget = max(50, limit - len(header) - len(footer) - 40)
+            admin_text = (
+                f"{header}\n\n"
+                f"📄 <b>Текст:</b>\n{h(shorten(text or '', budget))}"
+                f"{footer}"
+            )
 
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text=button_text, callback_data=callback_data)],
@@ -184,6 +194,32 @@ async def notify_admins_outcome(post_id: int, status: str, reason: Optional[str]
         logger.error(f"Ошибка отправки итога поста #{post_id} администраторам: {e}")
 
 
+async def _disable_moderator_card(post_id: int, status: str) -> None:
+    """Меняет кнопки карточки в чате модераторов на итоговую
+    («✅ Опубликовано»/«❌ Отказано») — независимо от того, кто принял
+    решение: модератор, админ, планировщик или таймаут модерации.
+
+    Функция была описана в CHANGES.md (версия 9), но потерялась в коде —
+    после автопубликации карточка оставалась с активными кнопками.
+    """
+    try:
+        async with aiosqlite.connect(DB_NAME) as db:
+            cur = await db.execute(
+                "SELECT message_id_moderators, chat_id_moderators FROM posts WHERE id=?",
+                (post_id,),
+            )
+            row = await cur.fetchone()
+        if not row or not row[0] or not row[1]:
+            return
+        await bot.edit_message_reply_markup(
+            chat_id=row[1], message_id=row[0],
+            reply_markup=disabled_moderation_keyboard(post_id, status),
+        )
+    except Exception as e:
+        if "message is not modified" not in str(e):
+            logger.info("Не удалось обновить карточку модераторов поста #%s: %s", post_id, e)
+
+
 async def publish_post(post_id: int, moderator_id: int = 0) -> Tuple[bool, str]:
     """Надёжная публикация: DB-claim -> Telegram -> DB-finish.
     Если Telegram упал, пост возвращается в очередь с retry и никогда не
@@ -205,18 +241,36 @@ async def publish_post(post_id: int, moderator_id: int = 0) -> Tuple[bool, str]:
             sent = await bot.send_photo(chat_id=chat_id, photo=photo, caption=escape(text or ""), parse_mode="HTML")
         else:
             sent = await bot.send_message(chat_id=chat_id, text=escape(text or ""), parse_mode="HTML")
-        if not await finish_publishing(post_id, sent.message_id):
-            await fail_publishing(post_id, "db_finalize_failed", retry=True)
-            return False, "db_finalize_failed"
-        await record_ai_feedback(post_id, "published", 2.0 if moderator_id == 0 else 4.0)
-        await register_mentions_from_text(text)
-        await notify_admins_outcome(post_id, "published")
-        await log("publish", f"post #{post_id} published by {moderator_id or 'bot'}")
-        return True, "published"
     except Exception as e:
         await fail_publishing(post_id, str(e), retry=True)
         logger.exception("Ошибка публикации поста #%s", post_id)
         return False, "telegram_publish_failed"
+
+    # Сообщение уже в канале. Дальше ни в коем случае нельзя возвращать пост
+    # в очередь (fail_publishing) — это привело бы к повторной публикации.
+    try:
+        finished = await finish_publishing(post_id, sent.message_id)
+    except Exception:
+        logger.exception("Пост #%s опубликован, но статус в БД не обновился — пробую ещё раз", post_id)
+        await asyncio.sleep(1)
+        finished = await finish_publishing(post_id, sent.message_id)
+    if not finished:
+        logger.error("Пост #%s опубликован (msg %s), но не был в статусе publishing", post_id, sent.message_id)
+        await set_channel_message_id(post_id, sent.message_id)
+        return False, "db_finalize_failed"
+
+    for step, coro in (
+        ("ai_feedback", lambda: record_ai_feedback(post_id, "published", 2.0 if moderator_id == 0 else 4.0)),
+        ("mentions", lambda: register_mentions_from_text(text)),
+        ("notify_admins", lambda: notify_admins_outcome(post_id, "published")),
+        ("moderator_card", lambda: _disable_moderator_card(post_id, "published")),
+        ("log", lambda: log("publish", f"post #{post_id} published by {moderator_id or 'bot'}")),
+    ):
+        try:
+            await coro()
+        except Exception:
+            logger.exception("Пост #%s опубликован, но шаг %s завершился ошибкой", post_id, step)
+    return True, "published"
 
 
 async def reject_post(post_id: int, moderator_id: Optional[int] = None, reason: str = "") -> bool:
@@ -265,6 +319,8 @@ async def reject_post(post_id: int, moderator_id: Optional[int] = None, reason: 
         await notify_admins_outcome(post_id, "rejected", reason or "Не указана")
     except Exception:
         logger.exception("Не удалось отправить итог отклонения поста #%s администраторам", post_id)
+
+    await _disable_moderator_card(post_id, "rejected")
 
     await log(
         "reject",
@@ -358,11 +414,10 @@ async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
     else:
         ai_block = "🤖 <b>Проверка ИИ</b> — анализ ещё не сохранён\n\n"
 
-    mod_text = f"{header}{ai_block}📝 <b>Текст публикации</b>\n<blockquote>{escape(text or 'Без текста')}</blockquote>"
-    if ocr_text:
-        mod_text += f"\n\n🔤 <b>Текст на фото</b>\n<blockquote>{escape(ocr_text[:700])}</blockquote>"
-    if ai_reason:
-        mod_text += f"\n\n💡 <b>Комментарий ИИ</b>\n<blockquote>{escape(ai_reason[:700])}</blockquote>"
+    mod_text = _build_review_text(
+        header, ai_block, text, ocr_text, ai_reason,
+        limit=CAPTION_LIMIT if photo else TEXT_LIMIT,
+    )
 
     async def _send(chat_id: int, topic_id: int, keyboard, review_text: str):
         if not chat_id:
@@ -398,6 +453,42 @@ async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
     )
     if mod_msg:
         await update_post_message_ids(post_id, moderators_message_id=mod_msg.message_id)
+
+
+def _build_review_text(header: str, ai_block: str, text: Optional[str], ocr_text: Optional[str],
+                       ai_reason: Optional[str], limit: int) -> str:
+    """Собирает карточку модерации, гарантированно укладываясь в лимит.
+
+    Раньше к фото прикреплялись текст поста + до 700 символов OCR + до 700
+    символов комментария ИИ — карточка легко превышала лимит подписи в 1024
+    символа, Telegram отклонял отправку, модераторы НЕ получали пост, и
+    через 24 часа он автоматически отклонялся. Теперь необязательные блоки
+    (OCR, комментарий ИИ) сокращаются, а затем отбрасываются при нехватке
+    места; текст поста сохраняется максимально полно.
+    """
+    def build(ocr_len: int, reason_len: int, text_len: int) -> str:
+        result = (
+            f"{header}{ai_block}📝 <b>Текст публикации</b>\n"
+            f"<blockquote>{h(shorten(text or 'Без текста', text_len))}</blockquote>"
+        )
+        if ocr_text and ocr_len > 0:
+            result += f"\n\n🔤 <b>Текст на фото</b>\n<blockquote>{h(shorten(ocr_text, ocr_len))}</blockquote>"
+        if ai_reason and reason_len > 0:
+            result += f"\n\n💡 <b>Комментарий ИИ</b>\n<blockquote>{h(shorten(ai_reason, reason_len))}</blockquote>"
+        return result
+
+    def visible_len(value: str) -> int:
+        # Лимит Telegram считается по видимым символам (после разбора HTML).
+        return len(unescape(_TAG_RE.sub("", value)))
+
+    text_len = len(text or "") or 20
+    for ocr_len, reason_len in ((700, 700), (300, 300), (150, 150), (0, 200), (0, 0)):
+        candidate = build(ocr_len, reason_len, text_len)
+        if visible_len(candidate) <= limit:
+            return candidate
+    # Даже без доп. блоков не влезает — сокращаем сам текст поста.
+    overflow = visible_len(build(0, 0, text_len)) - limit
+    return build(0, 0, max(20, text_len - overflow - 5))
 
 
 async def process_new_post(post_id: int) -> None:
@@ -453,8 +544,11 @@ async def route_new_post(post_id: int, photo_checked: bool = False) -> None:
             if not detector_ok:
                 media_ok = False
                 media_reason = "локальный анализатор фото недоступен"
-            else:
-                is_explicit, nsfw_class, nsfw_score = await screen_photo(photo)
+            elif not photo_checked:
+                # Если фото уже проверено при приёме поста (handlers/posting.py),
+                # повторно гонять NudeNet не нужно. Иначе проверяем уже
+                # скачанные байты, а не скачиваем файл ещё раз.
+                is_explicit, nsfw_class, nsfw_score = await check_photo_nsfw(media_bytes)
                 if is_explicit:
                     media_ok = False
                     media_reason = f"обнаружен потенциально запрещённый контент ({nsfw_class}, {nsfw_score:.2f})"
@@ -771,7 +865,7 @@ async def delete_published_post(post_id: int, reason: str, decided_by: Optional[
     try:
         await bot.send_message(
             user_id,
-            f"🗑 Ваш пост был удалён из канала по заявке.\n\n📝 <b>Причина:</b> {reason}",
+            f"🗑 Ваш пост был удалён из канала по заявке.\n\n📝 <b>Причина:</b> {h(reason)}",
             parse_mode="HTML",
         )
     except Exception as e:
@@ -916,6 +1010,8 @@ async def resolve_deletion_request(request_id: int, decided_by: int, approve: bo
 
     await _update_deletion_reviewer_messages(admin_refs, button_label)
     await log("deletion_decision", f"request #{request_id} post #{post_id}: {status} by {decided_by}")
+    if approve and button_label != "✅ Удалено":
+        return True, "delete_failed"
     return True, status
 
 

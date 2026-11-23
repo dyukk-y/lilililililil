@@ -13,6 +13,7 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.utils import h, shorten, edit_text_or_caption
 
 router = Router()
 
@@ -34,19 +35,29 @@ async def show_pending_posts(cb: CallbackQuery):
     await show_pending_posts_page(cb, page=1)
 
 async def show_pending_posts_page(cb: CallbackQuery, page: int):
+    message = cb.message
+    # Карточка может быть фото-предпросмотром поста (после «Опубликовать
+    # пост» / «Отклонить пост») — такое сообщение нельзя превратить в
+    # текстовое, поэтому присылаем список новым сообщением.
+    if message.photo:
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        message = await message.answer("⏳")
     posts, total = await get_pending_posts(page=page, per_page=5)
     total_pages = (total + 4) // 5 or 1
     
     if not posts:
         text = "📭 <b>Очередь публикаций пуста</b>\n\nВсе посты либо уже опубликованы, либо ещё не отправлены."
-        await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
+        await message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
         return
     
     text_lines = [f"📅 <b>Очередь публикаций (стр. {page}/{total_pages}):</b>\n"]
     
     start_idx = (page - 1) * 5 + 1
     for post_id, user_id, post_text, time, photo, status, scheduled_time in posts:
-        preview = post_text[:50] + "..." if len(post_text) > 50 else post_text
+        preview = h(shorten(post_text or "", 50))
 
         if scheduled_time:
             try:
@@ -67,7 +78,7 @@ async def show_pending_posts_page(cb: CallbackQuery, page: int):
     
     text = "\n".join(text_lines)
     
-    await cb.message.edit_text(
+    await message.edit_text(
         text, 
         parse_mode='HTML', 
         reply_markup=pending_posts_keyboard(page, total_pages)
@@ -107,7 +118,7 @@ async def process_admin_publish_post_id(msg: Message, state: FSMContext):
         return
     
     try:
-        post_id = int(msg.text.strip())
+        post_id = int((msg.text or "").strip().lstrip("#"))
     except ValueError:
         return await msg.answer("❌ Пожалуйста, введите число.")
     
@@ -134,7 +145,7 @@ async def process_admin_publish_post_id(msg: Message, state: FSMContext):
     
     preview_text = (
         f"📨 <b>Пост #{post_id}</b>\n\n"
-        f"{post[2]}\n\n"
+        f"{h(shorten(post[2], 800))}\n\n"
         f"Опубликовать этот пост прямо сейчас?"
     )
     
@@ -168,7 +179,7 @@ async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
 
     if not success:
         text = "❌ Пост уже был обработан ранее." if reason == "already_processed" else f"❌ Ошибка публикации: {reason}"
-        return await cb.message.edit_text(
+        return await edit_text_or_caption(cb.message, 
             text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⬅️ К постам", callback_data="pending_posts")]
@@ -177,7 +188,7 @@ async def admin_publish_confirm(cb: CallbackQuery, state: FSMContext):
 
     await log("admin_publish", f"admin {cb.from_user.id} published post #{post_id}")
 
-    await cb.message.edit_text(
+    await edit_text_or_caption(cb.message, 
         f"✅ Пост #{post_id} успешно опубликован!",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📅 К очереди", callback_data="pending_posts")],
@@ -215,7 +226,7 @@ async def process_admin_reject_post_id(msg: Message, state: FSMContext):
         return
     
     try:
-        post_id = int(msg.text.strip())
+        post_id = int((msg.text or "").strip().lstrip("#"))
     except ValueError:
         return await msg.answer("❌ Пожалуйста, введите число.")
     
@@ -242,7 +253,7 @@ async def process_admin_reject_post_id(msg: Message, state: FSMContext):
     
     preview_text = (
         f"📨 <b>Пост #{post_id}</b>\n\n"
-        f"{post[2]}\n\n"
+        f"{h(shorten(post[2], 800))}\n\n"
         f"Отклонить этот пост?"
     )
     
@@ -274,7 +285,7 @@ async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
     
     if not post or post[5] not in ("moderation", "approved"):
         await state.clear()
-        return await cb.message.edit_text(
+        return await edit_text_or_caption(cb.message, 
             "❌ Пост уже был обработан ранее.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⬅️ К постам", callback_data="pending_posts")]
@@ -284,7 +295,7 @@ async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminPostState.wait_reject_reason)
     await state.update_data(post_id=post_id)
     
-    await cb.message.edit_text(
+    await edit_text_or_caption(cb.message, 
         f"📝 <b>Причина отклонения поста #{post_id}</b>\n\n"
         "Напишите причину, которая будет отправлена автору:",
         parse_mode='HTML',
@@ -315,13 +326,15 @@ async def process_reject_reason(msg: Message, state: FSMContext):
             ])
         )
     
-    reason = msg.text.strip()
+    reason = (msg.text or "").strip()
+    if not reason:
+        return await msg.answer("❌ Причина должна быть текстом. Напишите причину отклонения.")
     await state.update_data(reject_reason=reason)
     
     preview_text = (
         f"📨 <b>Пост #{post_id}</b>\n\n"
-        f"{post[2]}\n\n"
-        f"📝 <b>Причина отклонения:</b>\n{reason}\n\n"
+        f"{h(shorten(post[2], 500))}\n\n"
+        f"📝 <b>Причина отклонения:</b>\n{h(shorten(reason, 300))}\n\n"
         f"Отправить это пользователю?"
     )
     
@@ -359,7 +372,7 @@ async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
     await state.clear()
 
     if not success:
-        return await cb.message.edit_text(
+        return await edit_text_or_caption(cb.message, 
             "❌ Пост уже был обработан ранее.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⬅️ К постам", callback_data="pending_posts")]
@@ -368,7 +381,7 @@ async def admin_reject_send(cb: CallbackQuery, state: FSMContext):
 
     await log("admin_reject", f"admin {cb.from_user.id} rejected post #{post_id}: {reason}")
     
-    await cb.message.edit_text(
+    await edit_text_or_caption(cb.message, 
         f"✅ Пост #{post_id} отклонен. Причина отправлена пользователю.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📅 К очереди", callback_data="pending_posts")],

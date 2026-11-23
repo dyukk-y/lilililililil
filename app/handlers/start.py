@@ -11,6 +11,8 @@ from app.services import *
 from app.handlers.author_lookup import present_author_lookup
 from app.handlers.post_deletion import present_delete_prompt
 from app.handlers.unlock import get_ban_status, unlock_keyboard, ban_status_text
+from app.utils import h
+from datetime import datetime
 
 router = Router()
 
@@ -56,10 +58,14 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         text = ban_status_text(ban_status)
         if ban_info:
             reason, ban_time, admin_username = ban_info
+            try:
+                ban_time = datetime.fromisoformat(ban_time).strftime("%d.%m.%Y %H:%M")
+            except (TypeError, ValueError):
+                pass
             text += (
-                f"\n\n📝 Причина: {reason}\n"
-                f"🕐 Время блокировки: {ban_time}\n"
-                f"👮 Вас заблокировал администратор: @{admin_username or 'неизвестно'}"
+                f"\n\n📝 Причина: {h(reason)}\n"
+                f"🕐 Время блокировки: {h(ban_time)}\n"
+                f"👮 Вас заблокировал администратор: @{h(admin_username or 'неизвестно')}"
             )
         return await msg.answer(text, reply_markup=unlock_keyboard(ban_status))
     
@@ -81,6 +87,11 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
             parse_mode='HTML',
             reply_markup=get_subscription_keyboard(unsubscribed_required)
         )
+        # Пользователь, забаненный в канале, физически не может на него
+        # подписаться — сразу предлагаем платную разблокировку, иначе он
+        # застревает на экране подписки навсегда.
+        if ban_status["channel"] or ban_status["comments"]:
+            await msg.answer(ban_status_text(ban_status), reply_markup=unlock_keyboard(ban_status))
         return
     
     await update_user_subscription_status(msg.from_user.id, True)

@@ -435,7 +435,7 @@ async def receive_subscription_target(msg: Message, state: FSMContext):
             await state.set_state(AdvertisingState.wait_broadcast_time)
             await state.update_data(broadcast_times=[], broadcast_index=1)
             await msg.answer(
-                f"✅ Цель обязательной подписки сохранена: {name}\n\n"
+                f"✅ Цель обязательной подписки сохранена: {escape(str(name))}\n\n"
                 f"🔐 Срок: {hours} ч.\n\n"
                 "📨 Теперь укажите дату и время первой рассылки.\n"
                 "Часовой пояс: Новосибирск (UTC+7).\n"
@@ -508,8 +508,11 @@ async def _show_confirmation_message(target, ad_id: int, duration_hours: int, pi
     data_text = [mode, f"⏱ Публикация: {_hours_label(duration_hours)}", f"📌 Закреп: {_pin_label(pin_hours)}"]
     if sub:
         data_text.append(f"🔐 Обязательная подписка: {escape(str(sub.get('name') or 'ресурс'))}")
-        if combo_label in COMBOS:
-            data_text.append(f"   Срок подписки: {COMBOS[combo_label]['subscription']} ч.")
+        # combo_label — это подпись («Неделя»), а не ключ словаря, поэтому
+        # раньше срок подписки в подтверждении не показывался никогда.
+        combo = next((c for c in COMBOS.values() if c["label"] == combo_label), None)
+        if combo and combo["subscription"]:
+            data_text.append(f"   Срок подписки: {combo['subscription']} ч.")
     text = "👆 Проверьте рекламную публикацию\n\nПост выше будет опубликован без изменений.\n\n" + "\n".join(data_text) + "\n\nЕсли всё верно — нажмите «Опубликовать»."
     if isinstance(target, Message):
         await target.answer(text, parse_mode="HTML", reply_markup=advertising_confirm_keyboard(ad_id, ad_type))

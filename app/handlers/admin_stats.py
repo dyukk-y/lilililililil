@@ -15,6 +15,7 @@ from app.states import *
 from app.validators import *
 from app.services import *
 from app.scheduler import make_backup
+from app.utils import h, shorten
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,8 @@ async def admin_stats(cb: CallbackQuery):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
     users_count = await get_users_count()
-    banned_users, _ = await get_banned_users(page=1, per_page=1)
-    banned_count = len(banned_users) if banned_users else 0
-    blacklist, _ = await get_publication_blacklist(page=1, per_page=100)
-    blacklist_count = len(blacklist) if blacklist else 0
+    _, banned_count = await get_banned_users(page=1, per_page=1)
+    _, blacklist_count = await get_publication_blacklist(page=1, per_page=1)
     subscription_count = len(REQUIRED_SUBSCRIPTIONS)
     
     async with aiosqlite.connect(DB_NAME) as db:
@@ -46,7 +45,10 @@ async def admin_stats(cb: CallbackQuery):
         cur = await db.execute("SELECT COUNT(*) FROM posts WHERE status='rejected'")
         rejected_posts = (await cur.fetchone())[0]
         
-        today = str(datetime.now().date())
+        # posts.time и users.reg_date хранятся в часовом поясе TIMEZONE, а не
+        # во времени сервера — раньше «сегодня» считалось по серверу (UTC) и
+        # в первые часы суток по Новосибирску статистика была неверной.
+        today = datetime.now(TIMEZONE).date().isoformat()
         cur = await db.execute("SELECT COUNT(*) FROM posts WHERE date(time)=?", (today,))
         today_posts = (await cur.fetchone())[0]
         
@@ -103,14 +105,18 @@ async def show_admin_logs(cb: CallbackQuery):
             try:
                 log_time = datetime.fromisoformat(time)
                 formatted_time = log_time.strftime('%H:%M:%S')
-            except:
+            except (TypeError, ValueError):
                 formatted_time = time
             
-            text_lines.append(f"🕐 {formatted_time} | {action} | {data}")
+            # В логах бывает пользовательский текст (причины, слова) —
+            # без экранирования весь экран логов падал с ошибкой.
+            line = f"🕐 {h(formatted_time)} | {h(action)} | {h(shorten(data, 300))}"
+            if sum(len(x) + 1 for x in text_lines) + len(line) > 4000:
+                text_lines.append("…")
+                break
+            text_lines.append(line)
         
         text = "\n".join(text_lines)
-        if len(text) > 4000:
-            text = text[:4000] + "..."
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
 
@@ -135,4 +141,4 @@ async def admin_backup_now(cb: CallbackQuery):
         await log("admin_backup", f"admin {cb.from_user.id} создал резервную копию вручную")
     except Exception as e:
         logger.error(f"Ошибка ручного резервного копирования: {e}")
-        await cb.message.answer(f"❌ Не удалось создать резервную копию: {e}")
+        await cb.message.answer(f"❌ Не удалось создать резервную копию: {h(e)}")

@@ -3,6 +3,7 @@
 супер-администраторам (app.config.SUPER_ADMINS), а не всем ADMINS.
 """
 import logging
+import asyncio
 import os
 import tempfile
 
@@ -19,6 +20,7 @@ from app.keyboards import (
 from app.states import SettingsState
 from app import runtime_settings as rs
 from app.services import get_bot_username
+from app.utils import h
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +127,7 @@ async def settings_edit_start(cb: CallbackQuery, state: FSMContext):
 
     await cb.message.edit_text(
         f"⚙️ <b>{rs.get_label(key)}</b>\n\n"
-        f"Текущее значение: <code>{rs.display_value(key)}</code>\n\n"
+        f"Текущее значение: <code>{h(rs.display_value(key))}</code>\n\n"
         f"Пришлите новое значение ({type_hint}):",
         parse_mode='HTML',
         reply_markup=settings_edit_cancel_keyboard()
@@ -144,11 +146,20 @@ async def settings_edit_process(msg: Message, state: FSMContext):
     if not key:
         return await msg.answer("❌ Ошибка: настройка не найдена, начните заново.")
 
+    if not msg.text:
+        await state.set_state(SettingsState.wait_new_value)
+        await state.update_data(key=key)
+        return await msg.answer("❌ Пришлите значение обычным текстом.", reply_markup=settings_edit_cancel_keyboard())
+
     ok, result_msg = await rs.set_value(key, msg.text.strip())
 
     if not ok:
+        # Оставляем пользователя в режиме ввода — можно сразу прислать
+        # исправленное значение, не открывая настройку заново.
+        await state.set_state(SettingsState.wait_new_value)
+        await state.update_data(key=key)
         return await msg.answer(
-            f"❌ {result_msg}",
+            f"❌ {h(result_msg)}",
             reply_markup=settings_edit_cancel_keyboard()
         )
 
@@ -156,7 +167,7 @@ async def settings_edit_process(msg: Message, state: FSMContext):
 
     if key in _INTRO_COMMENT_KEYS:
         await msg.answer(
-            f"✅ Настройка «{rs.get_label(key)}» изменена на <code>{rs.display_value(key)}</code>",
+            f"✅ Настройка «{rs.get_label(key)}» изменена на <code>{h(rs.display_value(key))}</code>",
             parse_mode='HTML',
             reply_markup=intro_comment_settings_keyboard()
         )
@@ -176,7 +187,7 @@ async def settings_edit_process(msg: Message, state: FSMContext):
         if k not in _INTRO_COMMENT_KEYS
     ]
     await msg.answer(
-        f"✅ Настройка «{rs.get_label(key)}» изменена на <code>{rs.display_value(key)}</code>",
+        f"✅ Настройка «{rs.get_label(key)}» изменена на <code>{h(rs.display_value(key))}</code>",
         parse_mode='HTML',
         reply_markup=settings_list_keyboard(keys_with_labels)
     )
@@ -192,23 +203,34 @@ async def export_users(cb: CallbackQuery):
 
     try:
         path = await _build_users_excel()
-        await cb.message.answer_document(
-            FSInputFile(path, filename="users.xlsx"),
-            caption="📥 Список пользователей (по убыванию потраченных ⭐)",
-        )
-        os.remove(path)
+        try:
+            await cb.message.answer_document(
+                FSInputFile(path, filename="users.xlsx"),
+                caption="📥 Список пользователей (по убыванию потраченных ⭐)",
+            )
+        finally:
+            # Временный файл удаляем всегда, даже если отправка не удалась.
+            try:
+                os.remove(path)
+            except OSError:
+                pass
         await log("export_users", f"admin {cb.from_user.id} exported users list")
     except Exception as e:
         logger.exception("Ошибка при экспорте пользователей в Excel")
-        await cb.message.answer(f"❌ Не удалось сформировать файл: {e}")
+        await cb.message.answer(f"❌ Не удалось сформировать файл: {h(e)}")
 
 
 async def _build_users_excel() -> str:
+    rows = await get_user_export_stats()
+    # openpyxl работает синхронно — на большой базе это блокировало бы весь
+    # бот на время сборки файла, поэтому выносим в отдельный поток.
+    return await asyncio.to_thread(_build_users_excel_sync, rows)
+
+
+def _build_users_excel_sync(rows) -> str:
     from datetime import date
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
-
-    rows = await get_user_export_stats()
 
     wb = Workbook()
     ws = wb.active

@@ -10,11 +10,12 @@ from app.config import ADMINS_CHAT_ID
 from app.database import record_star_purchase
 from app.runtime_settings import get as get_setting
 from app.states import DonationState
+from app.utils import h
 
 router = Router()
 logger = logging.getLogger(__name__)
 
-DONATION_TOPIC_ID = int(os.getenv("DONATION_TOPIC_ID", "81476"))
+DONATION_TOPIC_ID = int(os.getenv("DONATION_TOPIC_ID", "81476") or 0)
 
 
 @router.callback_query(F.data == "donate")
@@ -82,20 +83,32 @@ async def complete_donation(msg: Message, amount: int):
     if not admin_chat_id:
         logger.error("ADMINS_CHAT_ID не задан — невозможно отправить уведомление о пожертвовании")
     else:
-        await msg.bot.send_message(
-            chat_id=int(admin_chat_id),
-            message_thread_id=DONATION_TOPIC_ID,
-            text=(
-                "💛 Новое пожертвование\n\n"
-                f"👤 Пользователь: {username}\n"
-                f"📝 Имя: {name}\n"
-                f"🆔 ID: {msg.from_user.id}\n"
-                f"⭐️ Сумма: {amount} Stars\n"
-                f"🧾 ID платежа: {payment.telegram_payment_charge_id}"
-            ),
+        text = (
+            "💛 Новое пожертвование\n\n"
+            f"👤 Пользователь: {h(username)}\n"
+            f"📝 Имя: {h(name)}\n"
+            f"🆔 ID: {msg.from_user.id}\n"
+            f"⭐️ Сумма: {amount} Stars\n"
+            f"🧾 ID платежа: {h(payment.telegram_payment_charge_id)}"
         )
+        # Уведомление администрации не должно ломать ответ пользователю:
+        # раньше при неверной теме (DONATION_TOPIC_ID) или имени с символами
+        # "<"/"&" вылетало исключение, и донатер получал "оплата прошла, но
+        # произошла ошибка" вместо благодарности.
+        try:
+            await msg.bot.send_message(
+                chat_id=int(admin_chat_id),
+                message_thread_id=DONATION_TOPIC_ID or None,
+                text=text,
+            )
+        except Exception:
+            logger.warning("Не удалось отправить уведомление о пожертвовании в тему %s, пробую без темы", DONATION_TOPIC_ID)
+            try:
+                await msg.bot.send_message(chat_id=int(admin_chat_id), text=text)
+            except Exception:
+                logger.exception("Не удалось отправить уведомление о пожертвовании администрации")
 
     await msg.answer(
         f"💛 Спасибо за пожертвование — {amount} Stars!\n"
-        "Ваш вклад получил администратора. Спасибо ❤️"
+        "Ваш вклад получен администрацией. Спасибо ❤️"
     )

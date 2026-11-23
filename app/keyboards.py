@@ -22,15 +22,17 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✍️ Предложить пост", callback_data="offer")],
         [
+            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
             InlineKeyboardButton(text="❓ Помощь", callback_data="faq"),
-            InlineKeyboardButton(text="📜 Правила", callback_data="rules")
         ],
-        [InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile")],
+        [
+            InlineKeyboardButton(text="📜 Правила", callback_data="rules"),
+            InlineKeyboardButton(text="📢 Реклама", url="https://t.me/smotrmaslyanino_price"),
+        ],
         [
             InlineKeyboardButton(text="⭐ Stars", url="https://t.me/theyasha_bot?start=ref_6702947726"),
-            InlineKeyboardButton(text="🔒 VPN", url="https://t.me/YashaVPN_robot?start=anhVIOjJ")
+            InlineKeyboardButton(text="🔒 VPN", url="https://t.me/YashaVPN_robot?start=anhVIOjJ"),
         ],
-        [InlineKeyboardButton(text="📢 Реклама", url="https://t.me/smotrmaslyanino_price")]
     ])
 
 def profile_keyboard():
@@ -67,8 +69,10 @@ def back_to_post_type():
 
 def faq_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑️ Удалить запись", callback_data="delete_post_request")],
-        [InlineKeyboardButton(text="🔎 Узнать автора", callback_data="author_lookup_start")],
+        [
+            InlineKeyboardButton(text="🗑️ Удалить запись", callback_data="delete_post_request"),
+            InlineKeyboardButton(text="🔎 Узнать автора", callback_data="author_lookup_start"),
+        ],
         [InlineKeyboardButton(text="👥 Администрация", callback_data="admins")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
@@ -80,28 +84,38 @@ def admins_keyboard():
     ])
 
 def admin_menu(is_super_admin: bool = False):
+    """Компактная админ-панель: сетка 2×N вместо 13 строк по одной кнопке."""
+    B = InlineKeyboardButton
     keyboard = [
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="🤖 Статистика ИИ", callback_data="admin_ai_stats")],
-        [InlineKeyboardButton(text="📅 Очередь публикаций", callback_data="pending_posts")],
-        [InlineKeyboardButton(text="📢 Рекламный пост", callback_data="admin_ad_post")],
-        [InlineKeyboardButton(text="🚫 Стоп-слова и баны", callback_data="blacklist")],
-        [InlineKeyboardButton(text="🔑 Фразы для автопубликации", callback_data="auto_phrase_list")],
-        [InlineKeyboardButton(text="📢 Рассылка", callback_data="broadcast")],
-        [InlineKeyboardButton(text="📋 Логи", callback_data="admin_logs")],
-        [InlineKeyboardButton(text="💳 Управление подписками", callback_data="manage_subscriptions")],
-        [InlineKeyboardButton(text="🗄 Резервная копия БД", callback_data="admin_backup_now")],
+        [B(text="📅 Очередь", callback_data="pending_posts"),
+         B(text="📊 Статистика", callback_data="admin_stats")],
+        [B(text="🤖 ИИ", callback_data="admin_ai_stats"),
+         B(text="🔑 Фразы", callback_data="auto_phrase_list")],
+        [B(text="🚫 Баны и стоп-слова", callback_data="blacklist"),
+         B(text="💳 Подписки", callback_data="manage_subscriptions")],
+        [B(text="✉️ Рассылка", callback_data="broadcast"),
+         B(text="📢 Реклама", callback_data="admin_ad_post")],
+        [B(text="📋 Логи", callback_data="admin_logs"),
+         B(text="🗄 Бэкап", callback_data="admin_backup_now")],
     ]
     if is_super_admin:
-        keyboard.append([InlineKeyboardButton(text="⚙️ Настройки бота", callback_data="settings_list")])
-        keyboard.append([InlineKeyboardButton(text="💬 Первый комментарий", callback_data="settings_intro_comment")])
-        keyboard.append([InlineKeyboardButton(text="📥 Экспорт пользователей (Excel)", callback_data="export_users")])
+        keyboard.append([
+            B(text="⚙️ Настройки", callback_data="settings_list"),
+            B(text="💬 Комментарий", callback_data="settings_intro_comment"),
+        ])
+        keyboard.append([B(text="📥 Экспорт пользователей", callback_data="export_users")])
+    keyboard.append([B(text="🔄 Обновить", callback_data="admin_panel")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def admin_back_keyboard(extra: list | None = None) -> InlineKeyboardMarkup:
+    rows = list(extra or [])
+    rows.append([InlineKeyboardButton(text="⬅️ В админ-панель", callback_data="admin_panel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def blacklist_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="👤 Заблокированные пользователи", callback_data="banned_users")],
-        [InlineKeyboardButton(text="📝 Стоп-слова (маты/оскорбления/спам)", callback_data="pub_blacklist")],
+        [InlineKeyboardButton(text="👤 Баны", callback_data="banned_users"),
+         InlineKeyboardButton(text="📝 Стоп-слова", callback_data="pub_blacklist")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")]
     ])
 
@@ -160,18 +174,25 @@ def auto_phrase_cancel_menu():
 
 
 # ================== ДИНАМИЧЕСКИЕ НАСТРОЙКИ (только супер-админы) ==================
-def settings_list_keyboard(keys_with_labels: List[tuple]) -> InlineKeyboardMarkup:
+def settings_list_keyboard(keys_with_labels: List[tuple], back_callback: str = "settings_list") -> InlineKeyboardMarkup:
     """keys_with_labels: список (key, отображаемая_строка_кнопки)."""
     keyboard = [
         [InlineKeyboardButton(text=label, callback_data=f"settings_edit_{key}")]
         for key, label in keys_with_labels
     ]
-    keyboard.append([InlineKeyboardButton(text="⬅️ В админ-панель", callback_data="admin_panel")])
+    keyboard.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-def settings_edit_cancel_keyboard() -> InlineKeyboardMarkup:
+def settings_categories_keyboard(categories: List[str]) -> InlineKeyboardMarkup:
+    B = InlineKeyboardButton
+    buttons = [B(text=title, callback_data=f"settings_cat_{i}") for i, title in enumerate(categories)]
+    keyboard = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    keyboard.append([B(text="⬅️ В админ-панель", callback_data="admin_panel")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def settings_edit_cancel_keyboard(back_callback: str = "settings_list") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_list")]
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=back_callback)]
     ])
 
 def intro_comment_settings_keyboard() -> InlineKeyboardMarkup:
@@ -208,11 +229,11 @@ def broadcast_cancel_menu():
 
 def subscriptions_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Список подписок", callback_data="list_subscriptions")],
-        [InlineKeyboardButton(text="➕ Добавить канал", callback_data="add_channel_subscription")],
-        [InlineKeyboardButton(text="👥 Добавить группу", callback_data="add_group_subscription")],
-        [InlineKeyboardButton(text="🗑️ Удалить подписку", callback_data="remove_subscription")],
-        [InlineKeyboardButton(text="🔄 Обновить подписки", callback_data="refresh_subscriptions")],
+        [InlineKeyboardButton(text="📋 Список", callback_data="list_subscriptions"),
+         InlineKeyboardButton(text="🗑️ Удалить", callback_data="remove_subscription")],
+        [InlineKeyboardButton(text="➕ Канал", callback_data="add_channel_subscription"),
+         InlineKeyboardButton(text="➕ Группа", callback_data="add_group_subscription")],
+        [InlineKeyboardButton(text="🔄 Перечитать из БД", callback_data="refresh_subscriptions")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_panel")]
     ])
 

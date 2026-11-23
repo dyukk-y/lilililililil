@@ -211,9 +211,11 @@ async def _notify_submitted(msg: Message, post_id: int) -> None:
     ускорения проверки."""
     position = await get_total_pending_count()
     await msg.answer(
-        "✅ Ваш пост отправлен на модерацию.\n"
-        f"📊 Постов в очереди: {position}.\n"
-        "Мы сообщим вам о итогах, как только посты будут рассмотрены.",
+        f"✅ <b>Пост #{post_id} отправлен на модерацию</b>\n\n"
+        f"📊 Постов в очереди: <b>{position}</b>\n"
+        "🔔 Мы сообщим, если пост будет отклонён.\n\n"
+        "<i>Хотите быстрее? Нажмите «⚡ Ускорить проверку».</i>",
+        parse_mode='HTML',
         reply_markup=priority_boost_keyboard(post_id)
     )
 

@@ -353,3 +353,54 @@ async def advertising_expiry_loop() -> None:
             logger.exception("Ошибка в цикле рекламных публикаций")
         await asyncio.sleep(20)
 
+
+
+LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "90") or 90)
+# Максимальный суммарный объём бэкапов (МБ). Диск на тарифе — 5 ГБ, а
+# 48 копий большой базы могут занять его целиком.
+BACKUP_MAX_TOTAL_MB = int(os.getenv("BACKUP_MAX_TOTAL_MB", "1024") or 1024)
+NUDENET_IDLE_UNLOAD_SECONDS = int(os.getenv("NUDENET_IDLE_UNLOAD_SECONDS", "600") or 600)
+
+
+def _enforce_backup_size_limit() -> int:
+    if not os.path.isdir(BACKUP_DIR):
+        return 0
+    files = sorted(
+        os.path.join(BACKUP_DIR, f) for f in os.listdir(BACKUP_DIR)
+        if f.startswith("smotrbot_") and f.endswith(".db")
+    )
+    limit = BACKUP_MAX_TOTAL_MB * 1024 * 1024
+    removed = 0
+    # Самую свежую копию не удаляем никогда.
+    while len(files) > 1 and sum(os.path.getsize(f) for f in files) > limit:
+        try:
+            os.remove(files.pop(0))
+            removed += 1
+        except OSError:
+            break
+    return removed
+
+
+async def maintenance_loop() -> None:
+    """Обслуживание для небольшого тарифа (1 ГБ RAM / 5 ГБ диска):
+    - выгрузка NudeNet из памяти после простоя;
+    - раз в сутки — чистка старых логов и ограничение объёма бэкапов."""
+    from app.config import LOW_MEMORY_MODE
+    from app.database import prune_logs
+    from app.moderation_photo import release_if_idle
+
+    last_daily = 0.0
+    while True:
+        try:
+            if LOW_MEMORY_MODE:
+                await asyncio.to_thread(release_if_idle, NUDENET_IDLE_UNLOAD_SECONDS)
+            now = asyncio.get_running_loop().time()
+            if now - last_daily >= 24 * 3600 or last_daily == 0.0:
+                last_daily = now
+                deleted = await prune_logs(LOG_RETENTION_DAYS)
+                removed = await asyncio.to_thread(_enforce_backup_size_limit)
+                if deleted or removed:
+                    logger.info("Обслуживание: удалено логов %s, старых бэкапов %s", deleted, removed)
+        except Exception:
+            logger.exception("Ошибка в цикле обслуживания")
+        await asyncio.sleep(60)

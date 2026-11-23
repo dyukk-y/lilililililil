@@ -164,7 +164,7 @@ async def test_admin_panel_counts_all_banned(app_ready, fake):
     await _feed(app_ready, H.message_update(ADMIN_ID, "/admin"))
     text = fake.of("SendMessage")[-1].text
     import re
-    banned = int(re.search(r"Заблокировано: <b>(\d+)</b>", text).group(1))
+    banned = int(re.search(r"банов: <b>(\d+)</b>", text).group(1))
     assert banned >= 3  # раньше всегда было 0 или 1
 
 

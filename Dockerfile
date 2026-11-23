@@ -1,9 +1,15 @@
 FROM python:3.11-slim
 
+# Тариф 1 ГБ RAM / 2 vCPU: меньше арен malloc = меньше «пустой» памяти
+# процесса; ONNX/OpenCV/OCR не запускают больше потоков, чем ядер.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    MALLOC_ARENA_MAX=2 \
+    OMP_NUM_THREADS=2 \
+    OPENCV_NUM_THREADS=2 \
+    OMP_THREAD_LIMIT=2
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

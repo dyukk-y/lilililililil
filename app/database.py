@@ -718,6 +718,43 @@ async def log(action: str, data: str = "") -> None:
     logger.info(f"Лог: {action} - {data}")
 
 
+async def prune_logs(retention_days: int) -> int:
+    """Удаляет записи журнала старше retention_days. Таблица logs растёт с
+    каждым действием и без чистки со временем съедает диск (5 ГБ на
+    тарифе) и замедляет экран логов."""
+    cutoff = str(datetime.now() - timedelta(days=retention_days))
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("DELETE FROM logs WHERE time < ?", (cutoff,))
+        await db.commit()
+        deleted = cur.rowcount or 0
+        # Обновляет статистику планировщика запросов SQLite (дёшево).
+        await db.execute("PRAGMA optimize")
+        return deleted
+
+
+async def get_dashboard_counts() -> Dict[str, int]:
+    """Сводка для шапки админ-панели одним соединением."""
+    today = datetime.now(TIMEZONE).date().isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        async def one(sql: str, params: tuple = ()) -> int:
+            cur = await db.execute(sql, params)
+            row = await cur.fetchone()
+            return int(row[0] or 0) if row else 0
+
+        return {
+            "users": await one("SELECT COUNT(*) FROM users"),
+            "users_today": await one("SELECT COUNT(*) FROM users WHERE reg_date=?", (today,)),
+            "manual": await one("SELECT COUNT(*) FROM posts WHERE status='moderation'"),
+            "queued": await one("SELECT COUNT(*) FROM posts WHERE status='approved'"),
+            "published_today": await one(
+                "SELECT COUNT(*) FROM posts WHERE status='published' AND published_at>=?", (today,)),
+            "banned": await one("SELECT COUNT(*) FROM bans"),
+            "deletion_requests": await one("SELECT COUNT(*) FROM deletion_requests WHERE status='pending_admin'"),
+            "stars_today": await one(
+                "SELECT COALESCE(SUM(amount_stars),0) FROM star_purchases WHERE time>=?", (today,)),
+        }
+
+
 # ================== БАНЫ ==================
 async def is_banned(user_id: int) -> bool:
     async with aiosqlite.connect(DB_NAME) as db:

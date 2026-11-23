@@ -84,6 +84,33 @@ SETTINGS_SCHEMA: Dict[str, Tuple[type, str]] = {
     "INTRO_COMMENT_BTN3_URL": (str, "Кнопка 3 — ссылка"),
 }
 
+# Группировка настроек для компактного меню в админ-панели.
+SETTINGS_CATEGORIES: List[Tuple[str, List[str]]] = [
+    ("💬 Чаты и роли", [
+        "MAIN_CHANNEL_ID", "COMMENTS_CHAT_ID", "MODERATORS_CHAT_ID", "MODERATORS_TOPIC_ID",
+        "ADMINS_CHAT_ID", "ADMINS_TOPIC_ID", "ADMINS", "DELETION_REVIEWERS",
+    ]),
+    ("🗓 Публикация", [
+        "PUBLISH_WINDOW_START_HOUR", "PUBLISH_WINDOW_END_HOUR", "PUBLISH_WINDOW_END_MINUTE",
+        "DAILY_PUBLISH_LIMIT", "USER_DAILY_POST_LIMIT", "MAX_POST_LENGTH", "MIN_SLOT_GAP_MINUTES",
+    ]),
+    ("🛡 Автомодерация", [
+        "DUPLICATE_REPEAT_LIMIT", "DUPLICATE_SIMILARITY_THRESHOLD", "DUPLICATE_LOOKBACK_HOURS",
+        "PHOTO_DUPLICATE_LOOKBACK_HOURS", "AI_SHADOW_MODE", "NSFW_EXPLICIT_THRESHOLD",
+        "MODERATION_TIMEOUT_HOURS", "DELETION_REQUEST_TIMEOUT_HOURS",
+    ]),
+    ("⭐ Цены", ["AUTHOR_LOOKUP_PRICE_STARS", "PRIORITY_BOOST_PRICE_STARS", "UNLOCK_PRICE_STARS"]),
+    ("🗄 Резервные копии", ["BACKUP_INTERVAL_MINUTES", "BACKUP_KEEP_LAST"]),
+]
+
+
+def category_of(key: str) -> int | None:
+    for idx, (_, keys) in enumerate(SETTINGS_CATEGORIES):
+        if key in keys:
+            return idx
+    return None
+
+
 # Текущие значения в памяти (заполняется в load_settings()).
 SETTINGS: Dict[str, Any] = {}
 

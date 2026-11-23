@@ -13,7 +13,8 @@ from app.config import LOCAL_AI_PRELOAD
 from app.services import (
     publish_post, recover_pending_posts, deletion_expiry_loop, moderation_expiry_loop,
 )
-from app.scheduler import publisher_loop, backup_loop, rebalance_loop, advertising_expiry_loop
+from app.scheduler import publisher_loop, backup_loop, rebalance_loop, advertising_expiry_loop, maintenance_loop
+from app.ai_learning import learning_loop
 
 from app.handlers import (
     start,
@@ -111,6 +112,8 @@ async def main() -> None:
         asyncio.create_task(deletion_expiry_loop(), name="deletion_expiry"),
         asyncio.create_task(moderation_expiry_loop(), name="moderation_expiry"),
         asyncio.create_task(advertising_expiry_loop(), name="advertising"),
+        asyncio.create_task(maintenance_loop(), name="maintenance"),
+        asyncio.create_task(learning_loop(), name="ai_learning"),
     ]
 
     logger.info("Бот запущен и готов к работе")

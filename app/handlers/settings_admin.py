@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from app.config import SUPER_ADMINS
 from app.database import log, get_user_export_stats
 from app.keyboards import (
-    settings_list_keyboard, settings_edit_cancel_keyboard, admin_menu,
+    settings_list_keyboard, settings_categories_keyboard, settings_edit_cancel_keyboard, admin_menu,
     intro_comment_settings_keyboard, intro_comment_keyboard,
 )
 from app.states import SettingsState
@@ -48,25 +48,50 @@ async def _preview_keyboard():
 
 
 # ================== ОБЩИЙ СПИСОК НАСТРОЕК ==================
+def _short(value: str, limit: int = 18) -> str:
+    return value if len(value) <= limit else value[: limit - 1] + "…"
+
+
+def _category_keyboard(idx: int):
+    _, keys = rs.SETTINGS_CATEGORIES[idx]
+    items = [(key, f"{rs.get_label(key)}: {_short(rs.display_value(key))}") for key in keys]
+    return settings_list_keyboard(items)
+
+
+def _back_for(key: str) -> str:
+    if key in _INTRO_COMMENT_KEYS:
+        return "settings_intro_comment"
+    idx = rs.category_of(key)
+    return f"settings_cat_{idx}" if idx is not None else "settings_list"
+
+
 @router.callback_query(F.data == "settings_list")
-async def settings_list(cb: CallbackQuery):
+async def settings_list(cb: CallbackQuery, state: FSMContext):
     if not _is_super_admin(cb.from_user.id):
         return await cb.answer("🚫 Доступно только супер-администраторам.", show_alert=True)
-
-    # Настройки первого комментария вынесены в отдельный раздел с превью
-    # (см. "💬 Первый комментарий" в админ-панели) — здесь не дублируем.
-    keys_with_labels = [
-        (key, f"{rs.get_label(key)}: {rs.display_value(key)}")
-        for key in rs.all_keys()
-        if key not in _INTRO_COMMENT_KEYS
-    ]
-
+    await state.clear()
     await cb.message.edit_text(
         "⚙️ <b>Настройки бота</b>\n\n"
-        "Нажмите на параметр, чтобы изменить его значение. Изменения "
-        "применяются сразу, без перезапуска бота.",
+        "Выберите раздел. Изменения применяются сразу, без перезапуска.",
         parse_mode='HTML',
-        reply_markup=settings_list_keyboard(keys_with_labels)
+        reply_markup=settings_categories_keyboard([title for title, _ in rs.SETTINGS_CATEGORIES]),
+    )
+
+
+@router.callback_query(F.data.startswith("settings_cat_"))
+async def settings_category(cb: CallbackQuery, state: FSMContext):
+    if not _is_super_admin(cb.from_user.id):
+        return await cb.answer("🚫 Доступно только супер-администраторам.", show_alert=True)
+    try:
+        idx = int(cb.data.rsplit("_", 1)[1])
+        title, _ = rs.SETTINGS_CATEGORIES[idx]
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Раздел не найден.", show_alert=True)
+    await state.clear()
+    await cb.message.edit_text(
+        f"⚙️ <b>{title}</b>\n\nНажмите на параметр, чтобы изменить его.",
+        parse_mode='HTML',
+        reply_markup=_category_keyboard(idx),
     )
 
 
@@ -130,7 +155,7 @@ async def settings_edit_start(cb: CallbackQuery, state: FSMContext):
         f"Текущее значение: <code>{h(rs.display_value(key))}</code>\n\n"
         f"Пришлите новое значение ({type_hint}):",
         parse_mode='HTML',
-        reply_markup=settings_edit_cancel_keyboard()
+        reply_markup=settings_edit_cancel_keyboard(_back_for(key))
     )
 
 
@@ -149,7 +174,7 @@ async def settings_edit_process(msg: Message, state: FSMContext):
     if not msg.text:
         await state.set_state(SettingsState.wait_new_value)
         await state.update_data(key=key)
-        return await msg.answer("❌ Пришлите значение обычным текстом.", reply_markup=settings_edit_cancel_keyboard())
+        return await msg.answer("❌ Пришлите значение обычным текстом.", reply_markup=settings_edit_cancel_keyboard(_back_for(key)))
 
     ok, result_msg = await rs.set_value(key, msg.text.strip())
 
@@ -160,7 +185,7 @@ async def settings_edit_process(msg: Message, state: FSMContext):
         await state.update_data(key=key)
         return await msg.answer(
             f"❌ {h(result_msg)}",
-            reply_markup=settings_edit_cancel_keyboard()
+            reply_markup=settings_edit_cancel_keyboard(_back_for(key))
         )
 
     await log("settings_change", f"admin {msg.from_user.id}: {key} = {rs.display_value(key)}")
@@ -181,15 +206,11 @@ async def settings_edit_process(msg: Message, state: FSMContext):
             logger.exception("Не удалось отправить превью первого комментария после изменения")
         return
 
-    keys_with_labels = [
-        (k, f"{rs.get_label(k)}: {rs.display_value(k)}")
-        for k in rs.all_keys()
-        if k not in _INTRO_COMMENT_KEYS
-    ]
+    idx = rs.category_of(key)
     await msg.answer(
         f"✅ Настройка «{rs.get_label(key)}» изменена на <code>{h(rs.display_value(key))}</code>",
         parse_mode='HTML',
-        reply_markup=settings_list_keyboard(keys_with_labels)
+        reply_markup=_category_keyboard(idx) if idx is not None else admin_menu(True),
     )
 
 

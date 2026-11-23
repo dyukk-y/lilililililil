@@ -13,6 +13,7 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.utils import h
 
 router = Router()
 
@@ -48,16 +49,18 @@ async def list_subscriptions(cb: CallbackQuery):
             else:
                 emoji = "🤖"
                 
-            text_lines.append(f"{i}. {emoji} <b>{sub['name']}</b>")
+            text_lines.append(f"{i}. {emoji} <b>{h(sub['name'])}</b>")
             text_lines.append(f"   Тип: {sub['type']}")
-            text_lines.append(f"   ID/Username: <code>{sub['id']}</code>")
-            text_lines.append(f"   Юзернейм: {sub['username']}")
-            text_lines.append(f"   Ссылка: {sub['url']}\n")
+            text_lines.append(f"   ID/Username: <code>{h(sub['id'])}</code>")
+            text_lines.append(f"   Юзернейм: {h(sub['username'])}")
+            text_lines.append(f"   Ссылка: {h(sub['url'])}\n")
         
         text = "\n".join(text_lines)
         
         if len(text) > 4000:
-            text = text[:4000] + "\n\n... (список слишком длинный)"
+            # Режем по целым строкам, чтобы не разорвать HTML-тег.
+            cut = text.rfind("\n", 0, 3900)
+            text = text[:cut] + "\n\n... (список слишком длинный)"
     
     await cb.message.edit_text(text, parse_mode='HTML', reply_markup=subscriptions_menu())
 
@@ -135,7 +138,7 @@ async def process_subscription_add(msg: Message, state: FSMContext):
     sub_type = data.get("sub_type")
     
     if sub_type == "channel":
-        parts = msg.text.split(maxsplit=2)
+        parts = (msg.text or "").split(maxsplit=2)
         if len(parts) < 3:
             return await msg.answer("❌ Неверный формат. Нужно: ID_канала @юзернейм_или_ссылка Название_канала")
         
@@ -175,10 +178,10 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         await msg.answer(
             f"✅ Канал добавлен:\n"
             f"<b>Тип:</b> Канал\n"
-            f"<b>Название:</b> {name}\n"
+            f"<b>Название:</b> {h(name)}\n"
             f"<b>ID:</b> <code>{channel_id}</code>\n"
-            f"<b>Юзернейм:</b> {username or '—  (закрытый, по ссылке)'}\n"
-            f"<b>Ссылка:</b> {url}",
+            f"<b>Юзернейм:</b> {h(username or '—  (закрытый, по ссылке)')}\n"
+            f"<b>Ссылка:</b> {h(url)}",
             parse_mode='HTML',
             reply_markup=subscriptions_menu()
         )
@@ -186,7 +189,7 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         await log("subscription_add", f"admin {msg.from_user.id} added channel {channel_id} ({name})")
     
     elif sub_type == "group":
-        parts = msg.text.split(maxsplit=2)
+        parts = (msg.text or "").split(maxsplit=2)
         if len(parts) < 3:
             return await msg.answer("❌ Неверный формат. Нужно: ID_группы @юзернейм_или_ссылка Название_группы")
         
@@ -217,7 +220,7 @@ async def process_subscription_add(msg: Message, state: FSMContext):
             if bot_member.status not in ["administrator", "creator"]:
                 await msg.answer(
                     f"⚠️ <b>Предупреждение!</b>\n\n"
-                    f"Бот не является администратором в группе '{name}'.\n"
+                    f"Бот не является администратором в группе '{h(name)}'.\n"
                     f"Для корректной проверки подписок бот должен быть администратором "
                     f"(особенно если группа закрытая).\n\n"
                     f"Группа все равно будет добавлена, но проверка может не работать.",
@@ -227,7 +230,7 @@ async def process_subscription_add(msg: Message, state: FSMContext):
             logger.error(f"Ошибка проверки прав бота в группе: {e}")
             await msg.answer(
                 f"⚠️ <b>Предупреждение!</b>\n\n"
-                f"Не удалось проверить права бота в группе '{name}'.\n"
+                f"Не удалось проверить права бота в группе '{h(name)}'.\n"
                 f"Убедитесь, что бот добавлен в группу и является администратором.\n\n"
                 f"Группа все равно будет добавлена.",
                 parse_mode='HTML'
@@ -247,10 +250,10 @@ async def process_subscription_add(msg: Message, state: FSMContext):
         await msg.answer(
             f"✅ Группа добавлена:\n"
             f"<b>Тип:</b> Группа\n"
-            f"<b>Название:</b> {name}\n"
+            f"<b>Название:</b> {h(name)}\n"
             f"<b>ID:</b> <code>{group_id}</code>\n"
-            f"<b>Юзернейм:</b> {username or '—  (закрытая, по ссылке)'}\n"
-            f"<b>Ссылка:</b> {url}",
+            f"<b>Юзернейм:</b> {h(username or '—  (закрытая, по ссылке)')}\n"
+            f"<b>Ссылка:</b> {h(url)}",
             parse_mode='HTML',
             reply_markup=subscriptions_menu()
         )
@@ -314,10 +317,10 @@ async def process_remove_subscription(cb: CallbackQuery):
                 
             await cb.message.edit_text(
                 f"✅ Подписка удалена:\n\n"
-                f"{emoji} <b>{removed_sub['name']}</b>\n"
+                f"{emoji} <b>{h(removed_sub['name'])}</b>\n"
                 f"Тип: {removed_sub['type']}\n"
-                f"Юзернейм: {removed_sub['username']}\n"
-                f"Ссылка: {removed_sub['url']}",
+                f"Юзернейм: {h(removed_sub['username'])}\n"
+                f"Ссылка: {h(removed_sub['url'])}",
                 parse_mode='HTML',
                 reply_markup=subscriptions_menu()
             )

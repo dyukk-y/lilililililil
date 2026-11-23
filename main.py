@@ -2,6 +2,7 @@
 и фоновые задачи (автопубликация по расписанию, ребалансировка дневной
 квоты, резервное копирование БД, автоотклонение просроченных заявок)."""
 import asyncio
+import os
 
 from app.loader import bot, dp, logger
 from app.database import init_db
@@ -63,10 +64,13 @@ ROUTERS = (
 )
 
 
+DROP_PENDING_UPDATES = os.getenv("DROP_PENDING_UPDATES", "false").lower() in ("1", "true", "yes", "on")
+
+
 async def main() -> None:
     logger.info("Запуск бота...")
     from app.config import ADMINS
-    logger.info("ADMINS для проверки доступа: %s", ADMINS)
+    logger.info("Администраторов настроено: %s", len(ADMINS))
     await init_db()
 
     # Динамические настройки (цены, лимиты, ID чатов и т.д.) — читаются из
@@ -100,16 +104,29 @@ async def main() -> None:
     # - deletion_expiry_loop: автоотклонение заявок на удаление без ответа;
     # - moderation_expiry_loop: автоотклонение постов на ручной модерации
     #   без решения модератора в течение MODERATION_TIMEOUT_HOURS.
-    asyncio.create_task(publisher_loop(publish_post))
-    asyncio.create_task(rebalance_loop())
-    asyncio.create_task(backup_loop())
-    asyncio.create_task(deletion_expiry_loop())
-    asyncio.create_task(moderation_expiry_loop())
-    asyncio.create_task(advertising_expiry_loop())
+    background = [
+        asyncio.create_task(publisher_loop(publish_post), name="publisher"),
+        asyncio.create_task(rebalance_loop(), name="rebalance"),
+        asyncio.create_task(backup_loop(), name="backup"),
+        asyncio.create_task(deletion_expiry_loop(), name="deletion_expiry"),
+        asyncio.create_task(moderation_expiry_loop(), name="moderation_expiry"),
+        asyncio.create_task(advertising_expiry_loop(), name="advertising"),
+    ]
 
     logger.info("Бот запущен и готов к работе")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    # Накопившиеся за время простоя обновления больше НЕ выбрасываются по
+    # умолчанию: среди них могут быть successful_payment — раньше оплата,
+    # пришедшая во время перезапуска, просто терялась (звёзды списаны, а
+    # услуга не выдана). Старое поведение: DROP_PENDING_UPDATES=true.
+    await bot.delete_webhook(drop_pending_updates=DROP_PENDING_UPDATES)
+    try:
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    finally:
+        for task in background:
+            task.cancel()
+        await asyncio.gather(*background, return_exceptions=True)
+        await bot.session.close()
+        logger.info("Фоновые задачи остановлены, сессия закрыта")
 
 
 if __name__ == "__main__":

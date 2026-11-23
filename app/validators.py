@@ -26,7 +26,7 @@ def is_valid_admins_chat(message: Message) -> bool:
 
 async def validate_chat_for_moderation(callback: CallbackQuery) -> bool:
     """Проверяет, что колбэк из правильной темы для модерации."""
-    if callback.message.chat.id != get_setting("MODERATORS_CHAT_ID"):
+    if callback.message is None or callback.message.chat.id != get_setting("MODERATORS_CHAT_ID"):
         return False
     if callback.message.message_thread_id is not None:
         return callback.message.message_thread_id == get_setting("MODERATORS_TOPIC_ID")
@@ -35,7 +35,7 @@ async def validate_chat_for_moderation(callback: CallbackQuery) -> bool:
 
 async def validate_chat_for_admin_actions(callback: CallbackQuery) -> bool:
     """Проверяет, что колбэк из правильной темы для админ-действий."""
-    if callback.message.chat.id != get_setting("ADMINS_CHAT_ID"):
+    if callback.message is None or callback.message.chat.id != get_setting("ADMINS_CHAT_ID"):
         return False
     if callback.message.message_thread_id is not None:
         return callback.message.message_thread_id == get_setting("ADMINS_TOPIC_ID")
@@ -51,15 +51,22 @@ async def validate_chat_for_moderation_or_admin(callback: CallbackQuery) -> bool
     return await validate_chat_for_moderation(callback) or await validate_chat_for_admin_actions(callback)
 
 
-def validate_post_text(text: str) -> tuple[bool, str]:
+def validate_post_text(text: str, has_photo: bool = False) -> tuple[bool, str]:
     if not text or text.strip() == "":
         return False, "❌ Текст поста не может быть пустым."
 
     if len(text.strip()) < 5:
         return False, "❌ Текст поста слишком короткий"
 
-    if len(text) > 100:
-        return False, "❌ Текст поста слишком длинный (максимум 100 символов)."
+    # Раньше максимум был жёстко зашит (100), и настройка MAX_POST_LENGTH из
+    # админ-панели ни на что не влияла. Для поста с фото дополнительно
+    # учитываем лимит Telegram на подпись к фото (1024 символа) — иначе
+    # такой пост невозможно опубликовать в канал.
+    max_length = int(get_setting("MAX_POST_LENGTH"))
+    if has_photo:
+        max_length = min(max_length, 1024)
+    if len(text) > max_length:
+        return False, f"❌ Текст поста слишком длинный (максимум {max_length} символов)."
 
     # Минимум 3 слова — одиночное слово/междометие постом считаться не может.
     # Считаем словами только токены, содержащие буквы — обязательный эмодзи

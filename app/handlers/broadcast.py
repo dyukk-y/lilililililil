@@ -1,5 +1,8 @@
 import asyncio
+import re
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNotFound, TelegramRetryAfter
 from aiogram.types import *
 from aiogram.fsm.context import FSMContext
 
@@ -14,55 +17,11 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.utils import h, shorten
 
 router = Router()
 
 # ================== BROADCAST ==================
-def message_to_html(text: str, entities: list = None) -> str:
-    if not entities:
-        return text
-    
-    sorted_entities = sorted(entities, key=lambda e: e.length, reverse=True)
-    html_text = text
-    offset_shift = 0
-    
-    for entity in sorted_entities:
-        start = entity.offset
-        end = entity.offset + entity.length
-        
-        start += offset_shift
-        end += offset_shift
-        
-        original = html_text[start:end]
-        
-        if entity.type == "bold":
-            replacement = f"<b>{original}</b>"
-        elif entity.type == "italic":
-            replacement = f"<i>{original}</i>"
-        elif entity.type == "underline":
-            replacement = f"<u>{original}</u>"
-        elif entity.type == "strikethrough":
-            replacement = f"<s>{original}</s>"
-        elif entity.type == "code":
-            replacement = f"<code>{original}</code>"
-        elif entity.type == "pre":
-            replacement = f"<pre>{original}</pre>"
-        elif entity.type == "text_link":
-            url = entity.url
-            replacement = f'<a href="{url}">{original}</a>'
-        elif entity.type == "text_mention":
-            user = entity.user
-            replacement = f'<a href="tg://user?id={user.id}">{original}</a>'
-        elif entity.type == "spoiler":
-            replacement = f"<span class='tg-spoiler'>{original}</span>"
-        else:
-            continue
-        
-        html_text = html_text[:start] + replacement + html_text[end:]
-        offset_shift += len(replacement) - len(original)
-    
-    return html_text
-
 @router.callback_query(F.data == "broadcast")
 async def broadcast_menu_handler(cb: CallbackQuery):
     if not _is_admin(cb.from_user.id):
@@ -110,7 +69,10 @@ async def process_broadcast_text(msg: Message, state: FSMContext):
     
     text = msg.text or msg.caption
     entities = msg.entities or msg.caption_entities
-    html_text = message_to_html(text, entities)
+    # html_text из aiogram корректно учитывает UTF-16 смещения сущностей
+    # (эмодзи) и экранирует текст; самописный message_to_html ломал разметку
+    # при эмодзи перед форматированием и при символах "<"/"&".
+    html_text = msg.html_text
     
     await state.update_data(
         broadcast_text=text,
@@ -174,7 +136,10 @@ async def process_broadcast_text_with_photo(msg: Message, state: FSMContext):
     
     text = msg.text or msg.caption
     entities = msg.entities or msg.caption_entities
-    html_text = message_to_html(text, entities)
+    # html_text из aiogram корректно учитывает UTF-16 смещения сущностей
+    # (эмодзи) и экранирует текст; самописный message_to_html ломал разметку
+    # при эмодзи перед форматированием и при символах "<"/"&".
+    html_text = msg.html_text
     
     await state.update_data(
         broadcast_text=text,
@@ -204,7 +169,7 @@ async def show_broadcast_preview(msg: Message, state: FSMContext):
         if broadcast_type == "photo" and broadcast_photo:
             await msg.answer_photo(
                 photo=broadcast_photo,
-                caption=preview_header + "\n" + broadcast_text,
+                caption=preview_header + "\n" + broadcast_html,
                 parse_mode='HTML'
             )
         else:
@@ -214,8 +179,8 @@ async def show_broadcast_preview(msg: Message, state: FSMContext):
         logger.error(f"Ошибка при предпросмотре: {e}")
         try:
             await msg.answer(preview_header + "\n" + broadcast_html, parse_mode='HTML')
-        except:
-            await msg.answer(f"{preview_header}\n{broadcast_text}")
+        except Exception:
+            await msg.answer(f"{preview_header}\n{h(broadcast_text)}", parse_mode='HTML')
     
     await msg.answer(
         "👇 <b>Подтвердите рассылку:</b>",
@@ -263,92 +228,95 @@ async def start_broadcast(cb: CallbackQuery, state: FSMContext):
     
     success_count = 0
     error_count = 0
-    
-    for i, user_id in enumerate(users, 1):
-        try:
-            if broadcast_type == "photo" and broadcast_photo:
-                await bot.send_photo(
-                    chat_id=user_id,
-                    photo=broadcast_photo,
-                    caption=broadcast_text,
-                    caption_entities=broadcast_entities
-                )
-            else:
-                await bot.send_message(
-                    chat_id=user_id,
-                    text=broadcast_text,
-                    entities=broadcast_entities
-                )
-            success_count += 1
-        except Exception as e:
-            error_count += 1
-            logger.error(f"Ошибка отправки рассылки пользователю {user_id}: {e}")
-            
-            try:
-                if broadcast_type == "photo" and broadcast_photo:
-                    await bot.send_photo(
-                        chat_id=user_id,
-                        photo=broadcast_photo,
-                        caption=broadcast_html,
-                        parse_mode='HTML'
-                    )
-                else:
-                    await bot.send_message(
-                        chat_id=user_id,
-                        text=broadcast_html,
-                        parse_mode='HTML'
-                    )
-                success_count += 1
-                error_count -= 1
-            except:
+    blocked_count = 0
+
+    async def _send_once(user_id: int, mode: str) -> None:
+        """mode: entities — оригинальная разметка Telegram (премиум-эмодзи,
+        ссылки), html — запасной вариант, plain — без разметки."""
+        if mode == "entities":
+            text_kwargs = {"entities": broadcast_entities}
+            caption_kwargs = {"caption_entities": broadcast_entities}
+            body = broadcast_text
+        elif mode == "html":
+            text_kwargs = caption_kwargs = {"parse_mode": "HTML"}
+            body = broadcast_html
+        else:
+            text_kwargs = caption_kwargs = {"parse_mode": None}
+            body = re.sub(r"<[^>]+>", "", broadcast_html or broadcast_text)
+        if broadcast_type == "photo" and broadcast_photo:
+            await bot.send_photo(chat_id=user_id, photo=broadcast_photo, caption=body, **caption_kwargs)
+        else:
+            await bot.send_message(chat_id=user_id, text=body, **text_kwargs)
+
+    async def _deliver(user_id: int) -> str:
+        """Возвращает 'ok' | 'blocked' | 'error'."""
+        for mode in ("entities", "html", "plain"):
+            for _attempt in range(3):
                 try:
-                    import re
-                    clean_text = re.sub(r'<[^>]+>', '', broadcast_html)
-                    
-                    if broadcast_type == "photo" and broadcast_photo:
-                        await bot.send_photo(
-                            chat_id=user_id,
-                            photo=broadcast_photo,
-                            caption=clean_text
-                        )
-                    else:
-                        await bot.send_message(
-                            chat_id=user_id,
-                            text=clean_text
-                        )
-                    success_count += 1
-                    error_count -= 1
-                except:
-                    pass
-        
-        if i % 10 == 0 or i == total_users:
+                    await _send_once(user_id, mode)
+                    return "ok"
+                except TelegramRetryAfter as e:
+                    # Флуд-лимит Telegram: ждём и повторяем ТОТ ЖЕ вариант.
+                    # Раньше бот сразу слал ещё два «запасных» варианта и только
+                    # усиливал блокировку, теряя сообщения.
+                    await asyncio.sleep(e.retry_after + 0.5)
+                except (TelegramForbiddenError, TelegramNotFound):
+                    # Пользователь заблокировал бота/удалил аккаунт — повторять
+                    # бессмысленно.
+                    return "blocked"
+                except TelegramBadRequest as e:
+                    if "chat not found" in str(e).lower() or "user is deactivated" in str(e).lower():
+                        return "blocked"
+                    logger.warning("Рассылка: %s не принял вариант %s: %s", user_id, mode, e)
+                    break  # пробуем следующий вариант разметки
+                except Exception as e:
+                    logger.warning("Рассылка: ошибка отправки пользователю %s: %s", user_id, e)
+                    await asyncio.sleep(1)
+        return "error"
+
+    for i, user_id in enumerate(users, 1):
+        result = await _deliver(user_id)
+        if result == "ok":
+            success_count += 1
+        elif result == "blocked":
+            blocked_count += 1
+        else:
+            error_count += 1
+
+        if i % 25 == 0 or i == total_users:
             progress = int((i / total_users) * 100)
             try:
                 await status_msg.edit_text(
                     f"📢 <b>Рассылка в процессе...</b>\n\n"
                     f"👥 Всего пользователей: {total_users}\n"
                     f"✅ Отправлено: {success_count}/{total_users}\n"
+                    f"🚫 Заблокировали бота: {blocked_count}\n"
                     f"❌ Ошибок: {error_count}\n"
                     f"⏳ Прогресс: {progress}%",
                     parse_mode='HTML'
                 )
-            except:
+            except Exception:
                 pass
         
         await asyncio.sleep(0.05)
     
-    await status_msg.edit_text(
-        f"📢 <b>Рассылка завершена!</b>\n\n"
-        f"👥 Всего пользователей: {total_users}\n"
-        f"✅ Успешно отправлено: {success_count}\n"
-        f"❌ Ошибок: {error_count}\n"
-        f"📊 Процент успеха: {int((success_count/total_users)*100)}%\n\n"
-        f"📝 Текст рассылки:\n{broadcast_text[:100]}{'...' if len(broadcast_text) > 100 else ''}",
-        parse_mode='HTML',
-        reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS)
-    )
+    preview = h(shorten(broadcast_text, 100))
+    try:
+        await status_msg.edit_text(
+            f"📢 <b>Рассылка завершена!</b>\n\n"
+            f"👥 Всего пользователей: {total_users}\n"
+            f"✅ Успешно отправлено: {success_count}\n"
+            f"🚫 Заблокировали бота: {blocked_count}\n"
+            f"❌ Ошибок: {error_count}\n"
+            f"📊 Процент успеха: {int((success_count/total_users)*100)}%\n\n"
+            f"📝 Текст рассылки:\n{preview}",
+            parse_mode='HTML',
+            reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS)
+        )
+    except Exception:
+        logger.exception("Не удалось обновить итог рассылки")
     
-    await log("broadcast", f"admin {cb.from_user.id}: {success_count}/{total_users} успешно")
+    await log("broadcast", f"admin {cb.from_user.id}: {success_count}/{total_users} успешно, заблокировали: {blocked_count}")
     await state.clear()
 
 @router.callback_query(F.data == "broadcast_cancel")

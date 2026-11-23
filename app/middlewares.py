@@ -1,6 +1,8 @@
 """Middleware диспетчера: контроль чата/темы, проверка подписки/бана, отлов ошибок."""
 import logging
+import time
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
 
 from app.config import DELETION_REVIEWERS
@@ -33,15 +35,31 @@ class ErrorHandlingMiddleware:
     async def __call__(self, handler, event, data):
         try:
             return await handler(event, data)
-        except Exception:
-            logger.exception(f"Необработанная ошибка при обработке события: {event}")
-            try:
+        except TelegramBadRequest as exc:
+            # Повторное нажатие той же кнопки (edit_text с тем же текстом)
+            # и слишком старый callback — это не ошибки бота, пугать
+            # пользователя сообщением об ошибке не нужно.
+            message = str(exc).lower()
+            if "message is not modified" in message or "query is too old" in message:
                 if isinstance(event, CallbackQuery):
-                    await event.answer("⚠️ Произошла ошибка. Попробуйте ещё раз.", show_alert=True)
-                elif isinstance(event, Message):
-                    await event.answer("⚠️ Произошла ошибка при обработке запроса. Попробуйте ещё раз.")
-            except Exception:
-                logger.exception("Не удалось уведомить пользователя об ошибке")
+                    try:
+                        await event.answer()
+                    except Exception:
+                        pass
+                return None
+            return await self._report(event)
+        except Exception:
+            return await self._report(event)
+
+    async def _report(self, event):
+        logger.exception("Необработанная ошибка при обработке события %s", type(event).__name__)
+        try:
+            if isinstance(event, CallbackQuery):
+                await event.answer("⚠️ Произошла ошибка. Попробуйте ещё раз.", show_alert=True)
+            elif isinstance(event, Message):
+                await event.answer("⚠️ Произошла ошибка при обработке запроса. Попробуйте ещё раз.")
+        except Exception:
+            logger.exception("Не удалось уведомить пользователя об ошибке")
 
 
 class ChatValidationMiddleware:
@@ -63,11 +81,17 @@ class ChatValidationMiddleware:
         "refresh_subscriptions", "admin_publish_post",
         "admin_reject_post", "admin_ad_post", "admin_backup_now",
         "auto_phrase", "settings_", "export_users",
+        # Остальные кнопки админ-панели и мастера рекламы (/post) — раньше
+        # они не были в списке и блокировались, если админ открыл панель
+        # или /post не в личке.
+        "admin_", "ad_", "remove_sub_", "remove_blacklist_word_",
+        "remove_auto_phrase", "rm_auto_phrase_", "add_auto_phrase",
+        "broadcast", "priority_pub_", "priority_rej_",
     ]
 
     async def __call__(self, handler, event, data):
         if isinstance(event, CallbackQuery):
-            if _is_admin(event.from_user.id):
+            if event.from_user and _is_admin(event.from_user.id) and event.data:
                 for cmd in self.ADMIN_PANEL_CALLBACKS:
                     if event.data.startswith(cmd):
                         return await handler(event, data)
@@ -76,7 +100,7 @@ class ChatValidationMiddleware:
         # она должна работать независимо от того, где команда отправлена:
         # в личке, в группе администраторов или в другой группе. Иначе
         # ChatValidationMiddleware ошибочно блокирует /post проверкой темы.
-        if isinstance(event, Message) and _is_admin(event.from_user.id) and event.text:
+        if isinstance(event, Message) and event.from_user and _is_admin(event.from_user.id) and event.text:
             command = event.text.split(maxsplit=1)[0].split("@", 1)[0].lower()
             if command == "/post":
                 return await handler(event, data)
@@ -103,7 +127,7 @@ class ChatValidationMiddleware:
                     return
 
         elif isinstance(event, CallbackQuery):
-            if event.message.chat.type in ("group", "supergroup"):
+            if event.message is not None and event.message.chat.type in ("group", "supergroup"):
                 if event.message.chat.id == moderators_chat_id:
                     if not await validate_chat_for_moderation(event):
                         await event.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
@@ -119,22 +143,70 @@ class ChatValidationMiddleware:
         return await handler(event, data)
 
 
+# Положительный результат проверки подписки кэшируется ненадолго: без этого
+# на КАЖДОЕ сообщение/нажатие кнопки бот делал по запросу get_chat_member на
+# каждую обязательную подписку (и запись в БД), что заметно тормозит бота и
+# упирается в лимиты Telegram API при росте аудитории. Отрицательный
+# результат не кэшируется — подписавшийся пользователь сразу проходит дальше.
+SUBSCRIPTION_CACHE_TTL_SECONDS = 60
+_subscription_ok_until: dict[int, float] = {}
+
+
+def invalidate_subscription_cache(user_id: int | None = None) -> None:
+    if user_id is None:
+        _subscription_ok_until.clear()
+    else:
+        _subscription_ok_until.pop(user_id, None)
+
+
+def _is_payment_update(event) -> bool:
+    return isinstance(event, Message) and event.successful_payment is not None
+
+
+def _is_unlock_callback(event) -> bool:
+    return isinstance(event, CallbackQuery) and bool(event.data) and event.data.startswith("unlock_")
+
+
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
-        if hasattr(event, "from_user") and (
-            _is_admin(event.from_user.id) or event.from_user.id in DELETION_REVIEWERS
-        ):
+        user = getattr(event, "from_user", None)
+        if user is None:
+            return await handler(event, data)
+
+        # Подтверждение оплаты обрабатывается ВСЕГДА: деньги уже списаны.
+        # Раньше successful_payment от заблокированного пользователя (а он
+        # как раз платит за разблокировку!) или от отписавшегося отбрасывался
+        # этим middleware — звёзды списывались, а услуга не применялась.
+        if _is_payment_update(event):
+            return await handler(event, data)
+
+        if _is_admin(user.id) or user.id in DELETION_REVIEWERS:
             return await handler(event, data)
 
         if isinstance(event, Message) and event.chat.type in ("group", "supergroup"):
             return await handler(event, data)
 
-        if isinstance(event, CallbackQuery) and event.message.chat.type in ("group", "supergroup"):
+        if (
+            isinstance(event, CallbackQuery)
+            and event.message is not None
+            and event.message.chat.type in ("group", "supergroup")
+        ):
             return await handler(event, data)
 
-        user_id = event.from_user.id
+        user_id = user.id
+
+        # Кнопки «🔓 Разблокировать …» должны работать именно у
+        # заблокированных пользователей (и у забаненных в канале, которые
+        # физически не могут выполнить обязательную подписку на него).
+        if _is_unlock_callback(event):
+            return await handler(event, data)
+
+        is_start = isinstance(event, Message) and bool(event.text) and event.text.startswith("/start")
 
         if await is_banned(user_id):
+            # /start сам показывает причину блокировки и кнопки разблокировки.
+            if is_start:
+                return await handler(event, data)
             if isinstance(event, CallbackQuery):
                 await event.answer("🚫 Вы заблокированы.", show_alert=True)
             elif isinstance(event, Message):
@@ -145,10 +217,14 @@ class SubscriptionMiddleware:
                 )
             return
 
-        if isinstance(event, Message) and event.text and event.text.startswith("/start"):
+        if is_start:
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery) and event.data == "check_subscription":
+            invalidate_subscription_cache(user_id)
+            return await handler(event, data)
+
+        if _subscription_ok_until.get(user_id, 0) > time.monotonic():
             return await handler(event, data)
 
         is_subscribed, unsubscribed = await check_subscription(user_id)
@@ -161,10 +237,20 @@ class SubscriptionMiddleware:
             )
             if isinstance(event, CallbackQuery):
                 await event.answer("⚠️ Вы не подписаны на обязательные ресурсы.", show_alert=True)
-                await event.message.edit_text(text, parse_mode="HTML", reply_markup=get_subscription_keyboard(unsubscribed_required))
+                if event.message is not None:
+                    try:
+                        await event.message.edit_text(text, parse_mode="HTML", reply_markup=get_subscription_keyboard(unsubscribed_required))
+                    except Exception:
+                        await event.message.answer(text, parse_mode="HTML", reply_markup=get_subscription_keyboard(unsubscribed_required))
             else:
                 await event.answer(text, parse_mode="HTML", reply_markup=get_subscription_keyboard(unsubscribed_required))
             return
+
+        _subscription_ok_until[user_id] = time.monotonic() + SUBSCRIPTION_CACHE_TTL_SECONDS
+        if len(_subscription_ok_until) > 50_000:
+            now = time.monotonic()
+            for uid in [u for u, t in _subscription_ok_until.items() if t <= now]:
+                _subscription_ok_until.pop(uid, None)
 
         if not is_subscribed:
             await update_user_subscription_status(user_id, True)

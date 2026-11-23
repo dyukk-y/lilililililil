@@ -132,11 +132,18 @@ async def delreq_approve(cb: CallbackQuery):
     if cb.from_user.id not in DELETION_REVIEWERS:
         return await cb.answer("🚫 У вас нет доступа к решению по этой заявке.", show_alert=True)
 
-    request_id = int(cb.data.split("_")[2])
+    try:
+        request_id = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный запрос.", show_alert=True)
     ok, status = await resolve_deletion_request(request_id, cb.from_user.id, approve=True)
 
     if not ok:
         return await cb.answer("⚠️ Заявка уже была обработана кем-то ещё.", show_alert=True)
+    if status == "delete_failed":
+        # Раньше здесь всегда писалось «Пост удалён», даже если Telegram
+        # отказал в удалении и заявка вернулась в очередь.
+        return await cb.answer("⚠️ Telegram не дал удалить пост. Заявка возвращена — попробуйте ещё раз позже.", show_alert=True)
     await cb.answer("✅ Пост удалён.", show_alert=True)
 
 
@@ -145,7 +152,10 @@ async def delreq_reject(cb: CallbackQuery):
     if cb.from_user.id not in DELETION_REVIEWERS:
         return await cb.answer("🚫 У вас нет доступа к решению по этой заявке.", show_alert=True)
 
-    request_id = int(cb.data.split("_")[2])
+    try:
+        request_id = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный запрос.", show_alert=True)
     ok, status = await resolve_deletion_request(request_id, cb.from_user.id, approve=False)
 
     if not ok:

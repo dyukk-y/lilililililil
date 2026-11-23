@@ -5,12 +5,13 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 
 from app.auth import is_admin as _is_admin
-from app.config import ADMINS
+from app.config import ADMINS, SUPER_ADMINS
 from app.database import (
     get_auto_approve_phrases, add_auto_approve_phrase, remove_auto_approve_phrase, log,
 )
 from app.keyboards import auto_phrase_menu, auto_phrase_cancel_menu, admin_menu
 from app.states import AutoPhraseState
+from app.utils import h
 
 router = Router()
 
@@ -28,7 +29,7 @@ async def show_auto_phrase_page(cb: CallbackQuery, page: int):
 
     if not phrases:
         text = "🔑 <b>Список ключевых фраз пуст</b>"
-        return await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in ADMINS))
+        return await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
 
     lines = [
         f"🔑 <b>Ключевые фразы для автопубликации (стр. {page}/{total_pages}):</b>\n",
@@ -38,7 +39,7 @@ async def show_auto_phrase_page(cb: CallbackQuery, page: int):
     ]
     start_idx = (page - 1) * 10 + 1
     for i, (phrase, added_by, added_time) in enumerate(phrases, start_idx):
-        lines.append(f"{i}. <code>{phrase}</code>")
+        lines.append(f"{i}. <code>{h(phrase)}</code>")
 
     await cb.message.edit_text(
         "\n".join(lines), parse_mode='HTML', reply_markup=auto_phrase_menu(page, total_pages)
@@ -77,7 +78,7 @@ async def process_add_auto_phrase(msg: Message, state: FSMContext):
     if not _is_admin(msg.from_user.id):
         return
 
-    phrase = msg.text.strip()
+    phrase = (msg.text or "").strip()
     if len(phrase) < 2:
         return await msg.answer("❌ Фраза должна содержать минимум 2 символа.")
 
@@ -86,14 +87,14 @@ async def process_add_auto_phrase(msg: Message, state: FSMContext):
 
     if success:
         await msg.answer(
-            f"✅ Фраза добавлена: <code>{phrase}</code>",
+            f"✅ Фраза добавлена: <code>{h(phrase)}</code>",
             parse_mode='HTML',
             reply_markup=auto_phrase_menu()
         )
         await log("auto_phrase_add", f"admin {msg.from_user.id} added '{phrase}'")
     else:
         await msg.answer(
-            f"❌ Фраза <code>{phrase}</code> уже есть в списке.",
+            f"❌ Фраза <code>{h(phrase)}</code> уже есть в списке.",
             parse_mode='HTML',
             reply_markup=auto_phrase_menu()
         )
@@ -139,7 +140,7 @@ async def process_remove_auto_phrase(cb: CallbackQuery):
         return await cb.answer("❌ Фраза не найдена (список изменился, попробуйте снова).", show_alert=True)
 
     phrase = phrases[index][0]
-    await remove_auto_approve_phrase(phrase)
+    await remove_auto_approve_phrase(phrase, cb.from_user.id)
     await log("auto_phrase_remove", f"admin {cb.from_user.id} removed '{phrase}'")
 
     await cb.answer(f"✅ Фраза «{phrase}» удалена", show_alert=True)

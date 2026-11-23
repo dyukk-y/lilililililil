@@ -7,12 +7,19 @@
 администраторам пометку "приоритетная публикация". Обработка
 pre_checkout_query/successful_payment централизована в handlers/payments.py.
 """
-from aiogram import F, Router
-from aiogram.types import CallbackQuery, Message, LabeledPrice
+import logging
 
+from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message, LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButton
+
+from app.auth import is_admin
 from app.runtime_settings import get as get_setting
 from app.database import is_banned, get_post_by_id, record_star_purchase
-from app.services import apply_priority_boost
+from app.services import apply_priority_boost, publish_priority_post
+from app.states import AdminPostState
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -22,7 +29,10 @@ async def priority_boost_start(cb: CallbackQuery):
     if await is_banned(cb.from_user.id):
         return await cb.answer("🚫 Вы заблокированы.", show_alert=True)
 
-    post_id = int(cb.data.split("_")[2])
+    try:
+        post_id = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный запрос.", show_alert=True)
     post = await get_post_by_id(post_id)
     if not post:
         return await cb.answer("❌ Пост не найден.", show_alert=True)
@@ -59,4 +69,65 @@ async def complete_priority_boost(msg: Message, post_id: int) -> None:
     await msg.answer(
         "🚀 Оплата получена! Ваш пост поставлен в приоритет, "
         "администраторы уведомлены.",
+    )
+
+
+# ================== КНОПКИ АДМИНИСТРАТОРА В УВЕДОМЛЕНИИ О ПРИОРИТЕТЕ ==================
+# Раньше у кнопок «🚀 Опубликовать сейчас» / «❌ Отклонить» в уведомлении о
+# платном ускорении вообще не было обработчиков — нажатие ничего не делало,
+# хотя пользователь уже заплатил за приоритет.
+def _priority_done_keyboard(text: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=text, callback_data="disabled")]])
+
+
+@router.callback_query(F.data.startswith("priority_pub_"))
+async def priority_publish(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id):
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+    try:
+        post_id = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный ID поста", show_alert=True)
+
+    ok, reason = await publish_priority_post(post_id, cb.from_user.id)
+    if not ok:
+        messages = {
+            "already_processed": "❌ Этот пост уже обработан (опубликован/отклонён).",
+            "not_found": "❌ Пост не найден.",
+            "forbidden": "🚫 У вас нет доступа.",
+        }
+        return await cb.answer(messages.get(reason, f"❌ Ошибка публикации: {reason}"), show_alert=True)
+
+    await cb.answer("✅ Пост опубликован!", show_alert=True)
+    try:
+        await cb.message.edit_reply_markup(reply_markup=_priority_done_keyboard("✅ Опубликовано"))
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("priority_rej_"))
+async def priority_reject(cb: CallbackQuery, state: FSMContext):
+    if not is_admin(cb.from_user.id):
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+    try:
+        post_id = int(cb.data.split("_")[2])
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный ID поста", show_alert=True)
+
+    post = await get_post_by_id(post_id)
+    if not post or post[5] not in ("moderation", "approved"):
+        return await cb.answer("❌ Этот пост уже обработан.", show_alert=True)
+
+    # Дальше используется тот же сценарий, что и «❌ Отклонить пост» в
+    # админ-панели: причина -> предпросмотр -> подтверждение.
+    await state.set_state(AdminPostState.wait_reject_reason)
+    await state.update_data(post_id=post_id)
+    await cb.answer()
+    await cb.message.answer(
+        f"📝 <b>Причина отклонения поста #{post_id}</b>\n\n"
+        "Напишите причину, которая будет отправлена автору:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="admin_reject_cancel")]
+        ]),
     )

@@ -12,6 +12,8 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.utils import h
+from app.runtime_settings import get as get_setting
 
 router = Router()
 
@@ -110,11 +112,11 @@ async def profile(cb: CallbackQuery):
 
     text = (
         "👤 <b>Ваш профиль</b>\n\n"
-        f"📛 @{cb.from_user.username or 'не установлен'}\n"
+        f"📛 @{h(cb.from_user.username or 'не установлен')}\n"
         f"🆔 <code>{user_id}</code>\n"
         f"📅 С нами с: {reg}\n\n"
         "📊 <b>Публикации:</b>\n"
-        f"<blockquote>📨 Сегодня  {today}/5\n"
+        f"<blockquote>📨 Сегодня  {today}/{get_setting('USER_DAILY_POST_LIMIT')}\n"
         f"🗓 За 7 дней  {week}\n"
         f"✅ Опубликовано  {post_stats.get('published', 0)}\n"
         f"⏳ В очереди  {in_queue}\n"
@@ -138,7 +140,7 @@ async def faq(cb: CallbackQuery):
     await cb.message.edit_text(
         "❓ <b>Частые вопросы:</b>\n\n"
         "<b>- Сколько постов можно отправлять в день?</b>\n"
-        "Не более 5 постов в сутки\n\n"
+        f"Не более {get_setting('USER_DAILY_POST_LIMIT')} постов в сутки\n\n"
         "<b>- Как быстро публикуется пост?</b>\n"
         "Пост проходит модерацию — срок рассмотрения до 24 часов. После "
         "отправки бот покажет, сколько постов сейчас в очереди\n\n"

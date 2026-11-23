@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # как в Dockerfile
+          cache: pip
+      - name: Install dependencies
+        # nudenet/tesseract тяжёлые и в тестах не нужны: проверка фото
+        # корректно деградирует до ручной модерации без них.
+        run: |
+          grep -viE '^(nudenet|pytesseract)' requirements.txt > /tmp/req.txt
+          pip install -r /tmp/req.txt -r requirements-dev.txt
+      - name: Compile
+        run: python -m compileall -q app main.py
+      - name: Tests
+        run: python -m pytest -q

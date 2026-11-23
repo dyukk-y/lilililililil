@@ -171,6 +171,16 @@ NOTIFY_AUTHOR_ON_PUBLISH = 0 if os.getenv("NOTIFY_AUTHOR_ON_PUBLISH", "true").lo
 # При ошибке бот сам откатывается на обычный текст; 0 — выключить совсем.
 RICH_MESSAGES = 0 if os.getenv("RICH_MESSAGES", "true").lower() in ("0", "false", "no", "off") else 1
 
+# ================== АВТОПИЛОТ МОДЕРАЦИИ (см. app/autopilot.py) ==================
+def _flag(name: str, default: str) -> int:
+    return 0 if os.getenv(name, default).lower() in ("0", "false", "no", "off") else 1
+
+
+AUTOPILOT_TEXT = _flag("AUTOPILOT_TEXT", "true")
+AUTOPILOT_DECIDE_HOURS = _optional_int("AUTOPILOT_DECIDE_HOURS", 2)
+AUTOPILOT_TRUSTED_PHOTOS = _flag("AUTOPILOT_TRUSTED_PHOTOS", "true")
+TRUSTED_MIN_PUBLISHED = _optional_int("TRUSTED_MIN_PUBLISHED", 5)
+
 # ================== СУПЕР-АДМИНИСТРАТОРЫ ==================
 # Расширенные права: редактирование динамических настроек бота (цены,
 # лимиты, ID чатов и т.д. — см. app/runtime_settings.py) и выгрузка

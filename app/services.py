@@ -385,7 +385,7 @@ async def register_mentions_from_text(text: str) -> None:
 
 
 async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
-                                manual_reason: str = "") -> None:
+                                manual_reason: str = "", autopilot_hours: Optional[int] = None) -> None:
     """Карточка нового поста для МОДЕРАТОРОВ — единственное место, где
     решается судьба поста до публикации (кнопки "Опубликовать сейчас"/
     "Отказать"). Администраторы теперь ничего не видят на этом этапе —
@@ -426,10 +426,13 @@ async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
             f"<blockquote>🕐 <b>По расписанию:</b> {tg_time(scheduled_time)}</blockquote>\n"
         )
     else:
-        timeout_hours = get_setting("MODERATION_TIMEOUT_HOURS")
+        if autopilot_hours:
+            deadline_line = f"<b>🤖 Если не решите за {autopilot_hours} ч. — решит автопилот.</b>\n"
+        else:
+            deadline_line = f"<b>⏳ Автоотклонение через {get_setting('MODERATION_TIMEOUT_HOURS')} ч.</b>\n"
         header = (
             f"🔎 <b>ПОСТ #{post_id} · НУЖНО РЕШЕНИЕ</b>\n"
-            f"<b>⏳ Автоотклонение через {timeout_hours} ч.</b>\n"
+            f"{deadline_line}"
             f"<blockquote><b>Причина ручной проверки:</b> {escape(manual_reason or 'дополнительная проверка')}</blockquote>\n"
         )
 
@@ -540,11 +543,13 @@ async def process_new_post(post_id: int) -> None:
     await log("auto_approve", f"post #{post_id} scheduled at {scheduled_time.isoformat()}")
 
 
-async def process_new_post_manual_review(post_id: int, manual_reason: str = "") -> None:
+async def process_new_post_manual_review(post_id: int, manual_reason: str = "",
+                                         autopilot_hours: Optional[int] = None) -> None:
     """Конвейер для постов, требующих решения человека (фото, либо текст без
     ключевых фраз для автопубликации). Пользователю дополнительно ничего не
     пишем (см. process_new_post) — только карточка модераторам/админам."""
-    await send_post_for_review(post_id, scheduled_time=None, manual_reason=manual_reason)
+    await send_post_for_review(post_id, scheduled_time=None, manual_reason=manual_reason,
+                               autopilot_hours=autopilot_hours)
     await log("manual_review_required", f"post #{post_id} requires manual review: {manual_reason}")
 
 
@@ -615,12 +620,32 @@ async def route_new_post(post_id: int, photo_checked: bool = False) -> None:
 
     if decision.decision == "auto" and media_ok:
         await process_new_post(post_id)
-    else:
-        await set_post_auto_status(post_id, "pending_manual_review")
-        deadline = datetime.now(TIMEZONE) + timedelta(hours=get_setting("MODERATION_TIMEOUT_HOURS"))
-        await set_post_review_deadline(post_id, deadline)
-        reason = f"ИИ {decision.score}/100, уверенность {decision.confidence:.0%}: {final_reason}"
-        await process_new_post_manual_review(post_id, reason)
+        return
+
+    from app import autopilot
+    if not photo:
+        verdict = autopilot.text_decision(decision)
+        if verdict == "publish":
+            await log("autopilot", f"post #{post_id}: автопубликация (модель {decision.learned:.0%})")
+            await process_new_post(post_id)
+            return
+        if verdict == "reject":
+            await log("autopilot", f"post #{post_id}: автоотказ (модель {decision.learned:.0%})")
+            await reject_post(post_id, moderator_id=None, reason=autopilot.AUTO_REJECT_REASON)
+            return
+    elif autopilot.photo_allowed(decision, media_ok) and await autopilot.is_trusted_author(user_id):
+        await log("autopilot", f"post #{post_id}: фото доверенного автора {user_id} — в очередь")
+        await process_new_post(post_id)
+        return
+
+    await set_post_auto_status(post_id, "pending_manual_review")
+    # Текст при включённом автопилоте не ждёт сутки: через
+    # AUTOPILOT_DECIDE_HOURS решение примет автопилот.
+    autopilot_hours = get_setting("AUTOPILOT_DECIDE_HOURS") if (not photo and get_setting("AUTOPILOT_TEXT")) else None
+    hours = autopilot_hours or get_setting("MODERATION_TIMEOUT_HOURS")
+    await set_post_review_deadline(post_id, datetime.now(TIMEZONE) + timedelta(hours=hours))
+    reason = f"ИИ {decision.score}/100, уверенность {decision.confidence:.0%}: {final_reason}"
+    await process_new_post_manual_review(post_id, reason, autopilot_hours=autopilot_hours)
 
 
 async def recover_pending_posts() -> None:
@@ -659,26 +684,59 @@ async def recover_pending_posts() -> None:
             logger.exception(f"Не удалось дослать карточку поста #{post_id} модераторам")
 
 
+async def _handle_expired_review(post_id: int) -> None:
+    """Срок ручной проверки истёк без решения модератора."""
+    from app import autopilot
+    from app.database import approve_and_schedule_if_pending, get_post_for_autopilot
+    row = await get_post_for_autopilot(post_id)
+    if not row:
+        return
+    text, photo, ai_score, created = row
+
+    if not photo and get_setting("AUTOPILOT_TEXT"):
+        if autopilot.timeout_should_publish(text, ai_score):
+            slot = await pick_schedule_slot()
+            if await approve_and_schedule_if_pending(post_id, slot):
+                await log("autopilot", f"post #{post_id}: модератор не ответил — автопилот одобрил")
+            return
+        ok = await reject_post(post_id, moderator_id=None, reason=autopilot.AUTO_REJECT_REASON)
+        if ok:
+            await log("autopilot", f"post #{post_id}: модератор не ответил — автопилот отклонил")
+        return
+
+    if not photo:
+        # Автопилот выключили, пока пост ждал короткий срок: даём модераторам
+        # обычный полный срок, а не отклоняем раньше времени.
+        try:
+            full_deadline = datetime.fromisoformat(created) + timedelta(hours=get_setting("MODERATION_TIMEOUT_HOURS"))
+            if full_deadline > datetime.now(TIMEZONE).replace(tzinfo=None):
+                await set_post_review_deadline(post_id, full_deadline)
+                return
+        except (TypeError, ValueError):
+            pass
+
+    timeout_hours = get_setting("MODERATION_TIMEOUT_HOURS")
+    ok = await reject_post(
+        post_id, moderator_id=None,
+        reason=f"Автоматический отказ: решение не было принято в течение {timeout_hours} ч.",
+    )
+    if ok:
+        await log("moderation_expired", f"post #{post_id} auto-rejected (timeout)")
+
+
 async def moderation_expiry_loop() -> None:
-    """Фоновая задача: раз в 5 минут автоматически отклоняет посты на
-    ручной модерации, чей общий срок (MODERATION_TIMEOUT_HOURS, по
-    умолчанию 24 ч.) истёк без решения модератора."""
+    """Фоновая задача: раз в минуту обрабатывает посты, срок ручной
+    проверки которых истёк (автопилот или автоотказ)."""
     while True:
         try:
             for post_id in await get_expired_manual_review_posts():
                 try:
-                    timeout_hours = get_setting("MODERATION_TIMEOUT_HOURS")
-                    ok = await reject_post(
-                        post_id, moderator_id=None,
-                        reason=f"Автоматический отказ: решение не было принято в течение {timeout_hours} ч.",
-                    )
-                    if ok:
-                        await log("moderation_expired", f"post #{post_id} auto-rejected (timeout)")
+                    await _handle_expired_review(post_id)
                 except Exception:
-                    logger.exception(f"Ошибка при автоотклонении просроченного поста #{post_id}")
+                    logger.exception(f"Ошибка обработки просроченного поста #{post_id}")
         except Exception:
             logger.exception("Ошибка в цикле проверки просроченной модерации")
-        await asyncio.sleep(300)
+        await asyncio.sleep(60)
 
 
 # ================== NSFW-ПРОВЕРКА ФОТО ==================

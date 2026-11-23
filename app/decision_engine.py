@@ -20,6 +20,7 @@ class Decision:
     reason: str
     ai: LocalAIResult
     learned: Optional[float] = None  # вероятность одобрения по обученной модели
+    blocked: bool = False  # ИИ или модель видят явную проблему — автопилоту нельзя
 
 async def evaluate(text: str, trust: float = 0.0, has_trigger: bool = False, media_ok: bool = True) -> Decision:
     heuristic = score_post(text)
@@ -77,4 +78,5 @@ async def evaluate(text: str, trust: float = 0.0, has_trigger: bool = False, med
         reason = "локальный ИИ недоступен"
     if learned is not None and decision == "auto":
         reason += f"; обученная модель: {learned:.0%} за одобрение"
-    return Decision(max(-100, min(100, combined)), decision, confidence, reason, ai, learned)
+    blocked = reason.startswith("ИИ видит") or reason.startswith("обученная модель: похожие")
+    return Decision(max(-100, min(100, combined)), decision, confidence, reason, ai, learned, blocked)

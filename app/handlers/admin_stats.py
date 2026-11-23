@@ -181,6 +181,15 @@ async def admin_ai_stats(cb: CallbackQuery):
     from app import ai_learning
     stats = await get_ai_stats(30)
     model = ai_learning.get_model()
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM logs WHERE action='autopilot' AND time >= datetime('now', '-30 days')")
+        autopilot_count = (await cur.fetchone())[0]
+    autopilot_line = (
+        f"🤖 Автопилот: текст {'вкл' if get_setting('AUTOPILOT_TEXT') else 'выкл'}, "
+        f"фото доверенных {'вкл' if get_setting('AUTOPILOT_TRUSTED_PHOTOS') else 'выкл'} · "
+        f"решений за 30 дней: <b>{autopilot_count}</b>"
+    )
 
     routed = stats["auto"] + stats["manual"]
     reviewed = stats["approved"] + stats["rejected"]
@@ -208,6 +217,7 @@ async def admin_ai_stats(cb: CallbackQuery):
         f"🙈 На ручной, но одобрено: <b>{stats['false_negative']}</b>"
         "</blockquote>\n\n"
         f"🧠 <b>Самообучаемая модель</b>\n{model_line}\n\n"
+        f"{autopilot_line}\n\n"
         + expandable(
             "Модель учится на решениях модераторов: чем больше постов вы "
             "публикуете и отклоняете вручную, тем точнее она подсказывает. "
@@ -225,7 +235,7 @@ async def admin_ai_stats(cb: CallbackQuery):
             ("⚠️ Авто, но отклонено", str(stats['false_positive'])),
             ("🙈 Вручную, но одобрено", str(stats['false_negative'])),
         ])
-        + f"<h4>🧠 Самообучаемая модель</h4><p>{model_line}</p>"
+        + f"<h4>🧠 Самообучаемая модель</h4><p>{model_line}</p><p>{autopilot_line}</p>"
         + "<footer>Модель учится на решениях модераторов и сама посты не публикует.</footer>"
     )
     await edit_rich(cb.message, rich, text, reply_markup=admin_back_keyboard([

@@ -1221,6 +1221,27 @@ async def approve_and_schedule(post_id: int, scheduled_time: datetime) -> None:
         await db.commit()
 
 
+async def approve_and_schedule_if_pending(post_id: int, scheduled_time: datetime) -> bool:
+    """Как approve_and_schedule, но только для поста, всё ещё ждущего решения.
+    Защищает от гонки «автопилот одобряет — модератор в ту же секунду
+    отклонил»: отклонённый пост не «оживёт»."""
+    local_dt = scheduled_time.astimezone(TIMEZONE).replace(tzinfo=None) if scheduled_time.tzinfo else scheduled_time
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "UPDATE posts SET status='approved', auto_status='autopilot_approved', scheduled_time=? "
+            "WHERE id=? AND status='moderation'",
+            (local_dt.isoformat(), post_id),
+        )
+        await db.commit()
+        return cur.rowcount == 1
+
+
+async def get_post_for_autopilot(post_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("SELECT text, photo, ai_score, time FROM posts WHERE id=?", (post_id,))
+        return await cur.fetchone()
+
+
 async def get_due_posts() -> List[int]:
     """ID постов из очереди, чьё время публикации уже наступило."""
     now_local = datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()

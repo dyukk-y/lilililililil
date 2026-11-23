@@ -105,7 +105,8 @@ async def app_ready():
     setup_middlewares(dp)
     for router in main.ROUTERS:
         dp.include_router(router)
-    return dp
+    yield dp
+    await dp.storage.close()
 
 
 @pytest.fixture()

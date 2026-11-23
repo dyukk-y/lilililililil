@@ -123,11 +123,10 @@ async def priority_reject(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AdminPostState.wait_reject_reason)
     await state.update_data(post_id=post_id)
     await cb.answer()
+    from app.keyboards import reject_reasons_keyboard
     await cb.message.answer(
         f"📝 <b>Причина отклонения поста #{post_id}</b>\n\n"
-        "Напишите причину, которая будет отправлена автору:",
+        "Выберите готовую причину или напишите свою — она будет отправлена автору:",
         parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="admin_reject_cancel")]
-        ]),
+        reply_markup=reject_reasons_keyboard(post_id, "arejr", "admin_reject_cancel"),
     )

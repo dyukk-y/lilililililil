@@ -12,7 +12,8 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
-from app.utils import h
+from app.utils import h, main_menu_text, progress_bar, edit_text_or_caption
+from datetime import datetime
 from app.runtime_settings import get as get_setting
 
 router = Router()
@@ -57,10 +58,9 @@ async def rules(cb: CallbackQuery):
 @router.callback_query(F.data == "menu")
 async def menu(cb: CallbackQuery, state: FSMContext):
     await state.clear()
-    await cb.message.edit_text(
-        "🏠 Вы в главном меню \n\n"
-        "Бот от @maslyanino, ты сегодня прекрасно выглядишь 😘\n\n"
-        "Выбери действие: 👇",
+    await edit_text_or_caption(
+        cb.message,
+        main_menu_text(cb.from_user.first_name) + "\n\n<i>Бот от @maslyanino, ты сегодня прекрасно выглядишь 😘</i>",
         parse_mode='HTML',
         reply_markup=main_menu()
     )
@@ -110,13 +110,18 @@ async def profile(cb: CallbackQuery):
     elif comments_count + mentions_count >= 5:
         activity_level = "🌱 Развивающаяся"
 
+    daily_limit = get_setting('USER_DAILY_POST_LIMIT')
+    try:
+        reg = datetime.fromisoformat(reg).strftime('%d.%m.%Y')
+    except (TypeError, ValueError):
+        pass
     text = (
         "👤 <b>Ваш профиль</b>\n\n"
         f"📛 @{h(cb.from_user.username or 'не установлен')}\n"
         f"🆔 <code>{user_id}</code>\n"
-        f"📅 С нами с: {reg}\n\n"
+        f"📅 С нами с: {h(reg)}\n\n"
         "📊 <b>Публикации:</b>\n"
-        f"<blockquote>📨 Сегодня  {today}/{get_setting('USER_DAILY_POST_LIMIT')}\n"
+        f"<blockquote>📨 Сегодня  {today}/{daily_limit}  {progress_bar(today, daily_limit)}\n"
         f"🗓 За 7 дней  {week}\n"
         f"✅ Опубликовано  {post_stats.get('published', 0)}\n"
         f"⏳ В очереди  {in_queue}\n"

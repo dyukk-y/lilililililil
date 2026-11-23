@@ -11,7 +11,7 @@ from app.services import *
 from app.handlers.author_lookup import present_author_lookup
 from app.handlers.post_deletion import present_delete_prompt
 from app.handlers.unlock import get_ban_status, unlock_keyboard, ban_status_text
-from app.utils import h
+from app.utils import h, main_menu_text
 from datetime import datetime
 
 router = Router()
@@ -100,11 +100,7 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         return
 
     await msg.answer(
-        "Привет! 👋\n"
-        "Предложи запись для размещения в канале.\n\n"
-        "⚠️ Важное правило:\n"
-        "Каждый пост должен содержать эмодзи 🧑 или 👩\n\n"
-        "Выбери действие:",
+        main_menu_text(msg.from_user.first_name),
         parse_mode='HTML',
         reply_markup=main_menu()
     )
@@ -146,12 +142,7 @@ async def check_subscription_callback(cb: CallbackQuery, state: FSMContext):
             return
 
     await cb.message.edit_text(
-        "✅ <b>Отлично! Вы подписались на необходимые ресурсы</b>\n\n"
-        "Привет! 👋\n"
-        "Предложи запись для размещения в канале.\n\n"
-        "⚠️ Важное правило:\n"
-        "Каждый пост должен содержать эмодзи 🧑 или 👩\n\n"
-        "Выбери действие:",
+        "✅ <b>Подписка подтверждена!</b>\n\n" + main_menu_text(cb.from_user.first_name),
         parse_mode='HTML',
         reply_markup=main_menu()
     )

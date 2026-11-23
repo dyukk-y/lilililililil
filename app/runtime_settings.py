@@ -73,6 +73,8 @@ SETTINGS_SCHEMA: Dict[str, Tuple[type, str]] = {
     "AUTHOR_LOOKUP_PRICE_STARS": (int, "Цена расшифровки автора, ⭐"),
     "PRIORITY_BOOST_PRICE_STARS": (int, "Цена ускорения проверки, ⭐"),
     "UNLOCK_PRICE_STARS": (int, "Цена разблокировки (бот/канал/комментарии), ⭐"),
+    "PIN_PRICE_STARS_PER_HOUR": (int, "Цена закрепа своего поста за 1 час, ⭐"),
+    "NOTIFY_AUTHOR_ON_PUBLISH": (int, "Сообщать автору о публикации (0/1)"),
     "BACKUP_INTERVAL_MINUTES": (int, "Интервал резервного копирования, мин"),
     "BACKUP_KEEP_LAST": (int, "Сколько резервных копий хранить"),
     "INTRO_COMMENT_TEXT": (str, "Текст первого комментария под постом"),
@@ -83,6 +85,35 @@ SETTINGS_SCHEMA: Dict[str, Tuple[type, str]] = {
     "INTRO_COMMENT_BTN3_LABEL": (str, "Кнопка 3 — текст"),
     "INTRO_COMMENT_BTN3_URL": (str, "Кнопка 3 — ссылка"),
 }
+
+# Группировка настроек для компактного меню в админ-панели.
+SETTINGS_CATEGORIES: List[Tuple[str, List[str]]] = [
+    ("💬 Чаты и роли", [
+        "MAIN_CHANNEL_ID", "COMMENTS_CHAT_ID", "MODERATORS_CHAT_ID", "MODERATORS_TOPIC_ID",
+        "ADMINS_CHAT_ID", "ADMINS_TOPIC_ID", "ADMINS", "DELETION_REVIEWERS",
+    ]),
+    ("🗓 Публикация", [
+        "PUBLISH_WINDOW_START_HOUR", "PUBLISH_WINDOW_END_HOUR", "PUBLISH_WINDOW_END_MINUTE",
+        "DAILY_PUBLISH_LIMIT", "USER_DAILY_POST_LIMIT", "MAX_POST_LENGTH", "MIN_SLOT_GAP_MINUTES",
+        "NOTIFY_AUTHOR_ON_PUBLISH",
+    ]),
+    ("🛡 Автомодерация", [
+        "DUPLICATE_REPEAT_LIMIT", "DUPLICATE_SIMILARITY_THRESHOLD", "DUPLICATE_LOOKBACK_HOURS",
+        "PHOTO_DUPLICATE_LOOKBACK_HOURS", "AI_SHADOW_MODE", "NSFW_EXPLICIT_THRESHOLD",
+        "MODERATION_TIMEOUT_HOURS", "DELETION_REQUEST_TIMEOUT_HOURS",
+    ]),
+    ("⭐ Цены", ["AUTHOR_LOOKUP_PRICE_STARS", "PRIORITY_BOOST_PRICE_STARS", "UNLOCK_PRICE_STARS",
+               "PIN_PRICE_STARS_PER_HOUR"]),
+    ("🗄 Резервные копии", ["BACKUP_INTERVAL_MINUTES", "BACKUP_KEEP_LAST"]),
+]
+
+
+def category_of(key: str) -> int | None:
+    for idx, (_, keys) in enumerate(SETTINGS_CATEGORIES):
+        if key in keys:
+            return idx
+    return None
+
 
 # Текущие значения в памяти (заполняется в load_settings()).
 SETTINGS: Dict[str, Any] = {}
@@ -219,6 +250,8 @@ async def set_value(key: str, raw_value: str) -> Tuple[bool, str]:
         "AUTHOR_LOOKUP_PRICE_STARS": (1, 1_000_000),
         "PRIORITY_BOOST_PRICE_STARS": (1, 1_000_000),
         "UNLOCK_PRICE_STARS": (1, 1_000_000),
+        "PIN_PRICE_STARS_PER_HOUR": (1, 100_000),
+        "NOTIFY_AUTHOR_ON_PUBLISH": (0, 1),
         "BACKUP_INTERVAL_MINUTES": (1, 10080),
         "BACKUP_KEEP_LAST": (1, 1000),
     }

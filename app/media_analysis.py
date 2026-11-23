@@ -22,12 +22,22 @@ def _hamming(a: str, b: str) -> int:
     if not a or not b or len(a) != len(b): return 999
     return sum(x != y for x, y in zip(a,b))
 
+# OCR — самая тяжёлая по CPU операция. Большие фото уменьшаем (на точность
+# распознавания крупного текста это не влияет), а время ограничиваем, чтобы
+# одно «тяжёлое» фото не занимало процессор на десятки секунд.
+OCR_MAX_SIDE = 1600
+OCR_TIMEOUT_SECONDS = 20
+
+
 def _ocr_sync(data: bytes) -> str:
     try:
         from PIL import Image
         import pytesseract
         img = Image.open(io.BytesIO(data))
-        return pytesseract.image_to_string(img, lang="rus+eng")[:3000]
+        img = img.convert("L")
+        if max(img.size) > OCR_MAX_SIDE:
+            img.thumbnail((OCR_MAX_SIDE, OCR_MAX_SIDE))
+        return pytesseract.image_to_string(img, lang="rus+eng", timeout=OCR_TIMEOUT_SECONDS)[:3000]
     except Exception:
         return ""
 

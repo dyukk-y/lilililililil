@@ -114,6 +114,10 @@ async def confirm_pub(cb: CallbackQuery):
 
 # ================== ОТКЛОНЕНИЕ ==================
 async def reset_reject_state(post_id: int, message_id: int, chat_id: int, text: str, photo: str = None):
+    # Пост мог быть уже отклонён другим модератором (готовой причиной) или
+    # опубликован — тогда возвращать активные кнопки нельзя.
+    if await get_post_status(post_id) not in ("moderation", "approved"):
+        return
     try:
         if photo:
             await bot.edit_message_caption(
@@ -202,9 +206,7 @@ async def reject(cb: CallbackQuery, state: FSMContext):
         timestamp=datetime.now()
     )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel_rej_{pid}")]
-    ])
+    kb = reject_reasons_keyboard(pid, "rejr", f"cancel_rej_{pid}")
 
     # Отвечаем в ТОТ ЖЕ чат/тему, откуда пришёл клик (модераторы или
     # администраторы) — раньше это было жёстко зашито на чат модераторов,
@@ -213,7 +215,7 @@ async def reject(cb: CallbackQuery, state: FSMContext):
     await bot.send_message(
         chat_id=chat_id,
         message_thread_id=topic_id,
-        text="Опишите причину отказа (у вас 1 минута):",
+        text=f"❌ Отказ по посту #{pid}\n\nВыберите причину кнопкой или напишите свою (у вас 1 минута):",
         reply_markup=kb
     )
     await cb.answer()
@@ -361,3 +363,28 @@ async def ai_error(cb: CallbackQuery):
             return await cb.answer("🚫 Отметить ошибку ИИ может только администратор.", show_alert=True)
         return await cb.answer("ℹ️ Вы уже отмечали ошибку ИИ для этого поста.", show_alert=True)
     await cb.answer("✅ Спасибо! Ошибка ИИ учтена.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("rejr_"))
+async def reject_with_preset(cb: CallbackQuery, state: FSMContext):
+    """Отказ готовой причиной одним нажатием — без ручного ввода."""
+    if not await validate_chat_for_moderation(cb):
+        return await cb.answer("⚠️ Это действие доступно только в теме модерации", show_alert=True)
+    try:
+        _, pid_s, idx_s = cb.data.split("_")
+        pid, reason = int(pid_s), REJECT_REASONS[int(idx_s)]
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный запрос", show_alert=True)
+
+    data = await state.get_data()
+    if data.get("post_id") == pid:
+        await state.clear()
+
+    if not await reject_post(pid, moderator_id=cb.from_user.id, reason=reason):
+        await cb.answer("⚠️ Этот пост уже обработан.", show_alert=True)
+    else:
+        await cb.answer(f"✅ Отклонено: {reason}")
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass

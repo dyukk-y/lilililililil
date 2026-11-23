@@ -14,9 +14,11 @@
   человека в вопросах, которые он один может решить ответственно.
 """
 import asyncio
+import gc
 import io
 import logging
 import threading
+import time
 from typing import List, Optional, Tuple
 
 from app.runtime_settings import get as get_setting
@@ -38,6 +40,10 @@ EXPLICIT_CLASSES = {
 _detector = None
 _detector_lock = threading.Lock()
 _unavailable = False  # если модель не загрузилась — не пытаемся на каждом фото заново
+_last_used = 0.0
+# Одновременно — только одна проверка: две параллельные копии ONNX-инференса
+# на 2 vCPU / 1 ГБ RAM дают пик памяти и не ускоряют работу.
+_detect_lock = threading.Lock()
 
 
 def _get_detector():
@@ -64,10 +70,41 @@ def _get_detector():
 
 
 def _detect_sync(image_bytes: bytes) -> List[dict]:
-    detector = _get_detector()
-    if detector is None:
-        return []
-    return detector.detect(image_bytes)
+    global _last_used
+    with _detect_lock:
+        detector = _get_detector()
+        if detector is None:
+            return []
+        _last_used = time.monotonic()
+        try:
+            return detector.detect(image_bytes)
+        finally:
+            _last_used = time.monotonic()
+
+
+def release_if_idle(idle_seconds: float) -> bool:
+    """Выгружает модель NudeNet из памяти, если ей давно не пользовались.
+
+    Модель занимает сотни мегабайт RAM, а фото-посты приходят редко. На
+    тарифе с 1 ГБ памяти выгодно держать её загруженной только во время
+    всплесков активности: следующая проверка загрузит её заново (несколько
+    секунд). Возвращает True, если модель была выгружена.
+    """
+    global _detector
+    if _detector is None or time.monotonic() - _last_used < idle_seconds:
+        return False
+    if not _detect_lock.acquire(blocking=False):
+        return False  # прямо сейчас идёт проверка
+    try:
+        with _detector_lock:
+            if _detector is None:
+                return False
+            _detector = None
+    finally:
+        _detect_lock.release()
+    gc.collect()
+    logger.info("NudeNet выгружен из памяти после %s сек. простоя", int(idle_seconds))
+    return True
 
 
 async def check_photo_nsfw(image_bytes: bytes) -> Tuple[bool, Optional[str], float]:
@@ -98,6 +135,8 @@ async def check_photo_nsfw(image_bytes: bytes) -> Tuple[bool, Optional[str], flo
 
 
 def photo_detector_available() -> bool:
+    global _last_used
+    _last_used = time.monotonic()  # чтобы модель не выгрузили между проверкой и детекцией
     """Проверяет, доступен ли локальный детектор фото.
 
     Функция оставлена синхронной, потому что сервис вызывает её через

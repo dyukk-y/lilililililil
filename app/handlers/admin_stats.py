@@ -83,7 +83,8 @@ async def admin_stats(cb: CallbackQuery):
         f"{datetime.now(TIMEZONE).strftime('%d.%m.%Y %H:%M:%S')}"
     )
     
-    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
+    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_back_keyboard([
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_stats")]]))
 
 # ================== ЛОГИ ==================
 @router.callback_query(F.data == "admin_logs")
@@ -118,7 +119,8 @@ async def show_admin_logs(cb: CallbackQuery):
         
         text = "\n".join(text_lines)
     
-    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
+    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_back_keyboard([
+        [InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_logs")]]))
 
 # ================== РЕЗЕРВНОЕ КОПИРОВАНИЕ ==================
 @router.callback_query(F.data == "admin_backup_now")
@@ -142,3 +144,63 @@ async def admin_backup_now(cb: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка ручного резервного копирования: {e}")
         await cb.message.answer(f"❌ Не удалось создать резервную копию: {h(e)}")
+
+
+# ================== СТАТИСТИКА ИИ ==================
+# Кнопка «🤖 ИИ» раньше была в админ-панели, но обработчика у неё не было.
+def _pct(part: int, whole: int) -> str:
+    return f"{part / whole:.0%}" if whole else "—"
+
+
+@router.callback_query(F.data == "admin_ai_stats")
+async def admin_ai_stats(cb: CallbackQuery):
+    if not _is_admin(cb.from_user.id):
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+
+    from app import ai_learning
+    stats = await get_ai_stats(30)
+    model = ai_learning.get_model()
+
+    routed = stats["auto"] + stats["manual"]
+    reviewed = stats["approved"] + stats["rejected"]
+    if model is None:
+        model_line = "⏳ ещё не обучалась (обучение идёт в фоне каждые 30 мин)"
+    elif model.ready:
+        model_line = (
+            f"✅ активна · примеров: <b>{model.samples}</b> "
+            f"(одобрено {model.docs['ok']}, отклонено {model.docs['bad']})"
+        )
+    else:
+        need = ai_learning.MIN_SAMPLES_PER_CLASS
+        model_line = (
+            f"📚 набирает данные: одобрено {model.docs['ok']}/{need}, "
+            f"отклонено {model.docs['bad']}/{need}"
+        )
+
+    text = (
+        "🤖 <b>ИИ-модерация · 30 дней</b>\n\n"
+        "<blockquote>"
+        f"🚦 Маршрутизация: авто <b>{stats['auto']}</b> ({_pct(stats['auto'], routed)}) · "
+        f"вручную <b>{stats['manual']}</b>\n"
+        f"👮 Решения людей: одобрено <b>{stats['approved']}</b> · отклонено <b>{stats['rejected']}</b>\n"
+        f"⚠️ Авто, но отклонено людьми: <b>{stats['false_positive']}</b>\n"
+        f"🙈 На ручной, но одобрено: <b>{stats['false_negative']}</b>"
+        "</blockquote>\n\n"
+        f"🧠 <b>Самообучаемая модель</b>\n{model_line}\n\n"
+        "<i>Модель учится на решениях модераторов: чем больше постов вы "
+        "публикуете и отклоняете вручную, тем точнее она подсказывает. "
+        "Сама она пост не публикует — только отправляет сомнительные на "
+        "ручную проверку.</i>"
+    )
+    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_back_keyboard([
+        [InlineKeyboardButton(text="🧠 Переобучить сейчас", callback_data="admin_ai_retrain")]]))
+
+
+@router.callback_query(F.data == "admin_ai_retrain")
+async def admin_ai_retrain(cb: CallbackQuery):
+    if not _is_admin(cb.from_user.id):
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+    from app import ai_learning
+    model = await ai_learning.retrain()
+    await cb.answer(f"🧠 Модель переобучена: {model.samples} примеров", show_alert=True)
+    await admin_ai_stats(cb)

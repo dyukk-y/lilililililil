@@ -7,9 +7,9 @@ from logging.handlers import RotatingFileHandler
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.config import BOT_TOKEN, DB_NAME
+from app.fsm_storage import SQLiteStorage
 
 
 def _log_file_path() -> str:
@@ -42,4 +42,5 @@ logging.basicConfig(
 logger = logging.getLogger("smotrbot")
 
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher(storage=MemoryStorage())
+# Состояния диалогов хранятся в той же SQLite-базе и переживают перезапуск.
+dp = Dispatcher(storage=SQLiteStorage(DB_NAME))

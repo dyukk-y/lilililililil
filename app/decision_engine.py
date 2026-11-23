@@ -6,6 +6,11 @@ from typing import Optional
 
 from app.auto_score import score_post
 from app.local_ai import analyze_text, LocalAIResult
+from app import ai_learning
+
+# Пороги самообучаемой модели (вероятность одобрения модератором).
+LEARNED_REJECT_BELOW = 0.20   # уверена, что такое отклоняют -> на ручную проверку
+LEARNED_BOOST_ABOVE = 0.85    # уверена, что такое одобряют -> небольшой бонус
 
 @dataclass(frozen=True)
 class Decision:
@@ -14,10 +19,14 @@ class Decision:
     confidence: float
     reason: str
     ai: LocalAIResult
+    learned: Optional[float] = None  # вероятность одобрения по обученной модели
 
 async def evaluate(text: str, trust: float = 0.0, has_trigger: bool = False, media_ok: bool = True) -> Decision:
     heuristic = score_post(text)
     base = heuristic.score + (10 if has_trigger else 0)
+    learned = ai_learning.predict(text)
+    if learned is not None and learned >= LEARNED_BOOST_ABOVE:
+        base += 8
     ai = await analyze_text(text)
     if ai.available:
         semantic = max(-40, min(40, ai.score))
@@ -46,6 +55,9 @@ async def evaluate(text: str, trust: float = 0.0, has_trigger: bool = False, med
         if negative:
             decision = "manual"
             reason = "ИИ видит нежелательное намерение"
+        elif learned is not None and learned < LEARNED_REJECT_BELOW:
+            decision = "manual"
+            reason = f"обученная модель: похожие посты модераторы отклоняли ({learned:.0%} за одобрение)"
         elif contextual_trigger and (positive or combined >= 30 or ai.confidence >= 0.55):
             decision = "auto"
             reason = "ключевая фраза подтверждена безопасным контекстом"
@@ -63,4 +75,6 @@ async def evaluate(text: str, trust: float = 0.0, has_trigger: bool = False, med
         confidence = 0.25
         decision = "manual"
         reason = "локальный ИИ недоступен"
-    return Decision(max(-100, min(100, combined)), decision, confidence, reason, ai)
+    if learned is not None and decision == "auto":
+        reason += f"; обученная модель: {learned:.0%} за одобрение"
+    return Decision(max(-100, min(100, combined)), decision, confidence, reason, ai, learned)

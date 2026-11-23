@@ -50,3 +50,21 @@ async def edit_text_or_caption(message, text: str, **kwargs) -> None:
         if "message is not modified" in str(exc):
             return
         await message.answer(text, **kwargs)
+
+
+def progress_bar(value: int, total: int, width: int = 10) -> str:
+    """Текстовый индикатор: ▰▰▰▱▱▱▱▱▱▱"""
+    if total <= 0:
+        return "▱" * width
+    filled = max(0, min(width, round(width * value / total)))
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def main_menu_text(first_name: str | None = None) -> str:
+    name = h(first_name) if first_name else "друг"
+    return (
+        f"👋 Привет, <b>{name}</b>!\n\n"
+        "Здесь можно предложить пост для публикации в канале.\n\n"
+        "<blockquote>⚠️ В каждом посте должен быть эмодзи 🧑 или 👩</blockquote>\n\n"
+        "Выберите действие 👇"
+    )

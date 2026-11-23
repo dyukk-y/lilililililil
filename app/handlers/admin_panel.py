@@ -19,22 +19,22 @@ from app.auth import is_admin as _is_admin
 
 # ================== ADMIN PANEL ==================
 async def _admin_panel_text() -> str:
-    users_count = await get_users_count()
-    _, banned_count = await get_banned_users(page=1, per_page=1)
-    _, blacklist_count = await get_publication_blacklist(page=1, per_page=1)
-    subscription_count = len(REQUIRED_SUBSCRIPTIONS)
-
+    """Шапка админ-панели — короткая сводка «что требует внимания»."""
+    c = await get_dashboard_counts()
+    attention = []
+    if c["manual"]:
+        attention.append(f"🔎 ждут решения: <b>{c['manual']}</b>")
+    if c["deletion_requests"]:
+        attention.append(f"🗑 заявок на удаление: <b>{c['deletion_requests']}</b>")
+    attention_line = " · ".join(attention) if attention else "✅ всё обработано"
     return (
-        f"🛠 <b>Админ-панель</b>\n\n"
-        f"📊 <b>Статистика:</b>\n"
-        f"👥 Пользователей: <b>{users_count}</b>\n"
-        f"🚫 Заблокировано: <b>{banned_count}</b>\n"
-        f"📝 Стоп-слов (маты/оскорбления/спам): <b>{blacklist_count}</b>\n"
-        f"📢 Обязательных подписок: <b>{subscription_count}</b>\n\n"
-        f"🤖 <i>Посты с ключевыми фразами (см. «Фразы для автопубликации») "
-        f"публикуются автоматически по расписанию; всё остальное — фото и "
-        f"текст без таких фраз — ждёт решения модератора (до 24 часов).</i>\n\n"
-        f"<i>Выберите действие:</i>"
+        "🛠 <b>Админ-панель</b>\n\n"
+        f"{attention_line}\n\n"
+        "<blockquote>"
+        f"👥 Пользователи: <b>{c['users']}</b> (+{c['users_today']} сегодня)\n"
+        f"📅 В очереди: <b>{c['queued']}</b> · опубликовано сегодня: <b>{c['published_today']}</b>\n"
+        f"⭐ Звёзд сегодня: <b>{c['stars_today']}</b> · 🚫 банов: <b>{c['banned']}</b>"
+        "</blockquote>"
     )
 
 

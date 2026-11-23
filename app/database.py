@@ -298,6 +298,21 @@ async def init_db() -> None:
             UNIQUE(broadcast_id, user_id)
         )""")
 
+        # Платные закрепы постов пользователей (снимаются автоматически).
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS post_pins(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            channel_message_id INTEGER NOT NULL,
+            hours INTEGER NOT NULL,
+            pinned_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            charge_id TEXT
+        )""")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_post_pins_status ON post_pins(status, expires_at)")
+
         await db.commit()
 
         # Для тех, кто обновляется со старой версии БД (созданной до появления
@@ -716,6 +731,43 @@ async def log(action: str, data: str = "") -> None:
         )
         await db.commit()
     logger.info(f"Лог: {action} - {data}")
+
+
+async def prune_logs(retention_days: int) -> int:
+    """Удаляет записи журнала старше retention_days. Таблица logs растёт с
+    каждым действием и без чистки со временем съедает диск (5 ГБ на
+    тарифе) и замедляет экран логов."""
+    cutoff = str(datetime.now() - timedelta(days=retention_days))
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("DELETE FROM logs WHERE time < ?", (cutoff,))
+        await db.commit()
+        deleted = cur.rowcount or 0
+        # Обновляет статистику планировщика запросов SQLite (дёшево).
+        await db.execute("PRAGMA optimize")
+        return deleted
+
+
+async def get_dashboard_counts() -> Dict[str, int]:
+    """Сводка для шапки админ-панели одним соединением."""
+    today = datetime.now(TIMEZONE).date().isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        async def one(sql: str, params: tuple = ()) -> int:
+            cur = await db.execute(sql, params)
+            row = await cur.fetchone()
+            return int(row[0] or 0) if row else 0
+
+        return {
+            "users": await one("SELECT COUNT(*) FROM users"),
+            "users_today": await one("SELECT COUNT(*) FROM users WHERE reg_date=?", (today,)),
+            "manual": await one("SELECT COUNT(*) FROM posts WHERE status='moderation'"),
+            "queued": await one("SELECT COUNT(*) FROM posts WHERE status='approved'"),
+            "published_today": await one(
+                "SELECT COUNT(*) FROM posts WHERE status='published' AND published_at>=?", (today,)),
+            "banned": await one("SELECT COUNT(*) FROM bans"),
+            "deletion_requests": await one("SELECT COUNT(*) FROM deletion_requests WHERE status='pending_admin'"),
+            "stars_today": await one(
+                "SELECT COALESCE(SUM(amount_stars),0) FROM star_purchases WHERE time>=?", (today,)),
+        }
 
 
 # ================== БАНЫ ==================
@@ -1804,3 +1856,52 @@ async def get_user_export_stats() -> List[tuple]:
         """)
         return await cur.fetchall()
 
+
+
+# ================== ПЛАТНЫЕ ЗАКРЕПЫ ПОСТОВ ==================
+async def get_active_pin(post_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id, expires_at FROM post_pins WHERE post_id=? AND status='active'", (post_id,))
+        return await cur.fetchone()
+
+
+async def add_post_pin(post_id: int, user_id: int, channel_message_id: int, hours: int, charge_id: str) -> datetime:
+    """Добавляет закреп. Если пост уже закреплён — продлевает срок."""
+    now = datetime.now(TIMEZONE).replace(tzinfo=None)
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id, expires_at FROM post_pins WHERE post_id=? AND status='active'", (post_id,))
+        row = await cur.fetchone()
+        if row:
+            base = max(now, datetime.fromisoformat(row[1]))
+            expires = base + timedelta(hours=hours)
+            await db.execute("UPDATE post_pins SET expires_at=?, hours=hours+? WHERE id=?",
+                             (expires.isoformat(), hours, row[0]))
+        else:
+            expires = now + timedelta(hours=hours)
+            await db.execute(
+                "INSERT INTO post_pins(post_id, user_id, channel_message_id, hours, pinned_at, expires_at, charge_id) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (post_id, user_id, channel_message_id, hours, now.isoformat(), expires.isoformat(), charge_id),
+            )
+        await db.commit()
+        return expires
+
+
+async def get_expired_pins() -> List[tuple]:
+    now = datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id, post_id, user_id, channel_message_id FROM post_pins "
+            "WHERE status='active' AND expires_at<=?", (now,))
+        return await cur.fetchall()
+
+
+async def finish_post_pin(pin_id: Optional[int] = None, post_id: Optional[int] = None) -> None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        if pin_id is not None:
+            await db.execute("UPDATE post_pins SET status='done' WHERE id=?", (pin_id,))
+        elif post_id is not None:
+            await db.execute("UPDATE post_pins SET status='done' WHERE post_id=? AND status='active'", (post_id,))
+        await db.commit()

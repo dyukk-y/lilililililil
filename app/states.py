@@ -53,6 +53,7 @@ class AdvertisingState(StatesGroup):
     wait_subscription = State()
     wait_broadcast_time = State()
     wait_confirm = State()
+    wait_publish_time = State()  # дата отложенной публикации
 
 
 class DonationState(StatesGroup):

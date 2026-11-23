@@ -258,6 +258,10 @@ async def advertising_expiry_loop() -> None:
             now = datetime.now(TIMEZONE)
             await expire_advertising_subscriptions(now)
 
+            # Отложенные публикации рекламы.
+            from app.handlers.advertising import publish_due_scheduled_ads
+            await publish_due_scheduled_ads()
+
             # Сначала выполняем запланированные рассылки. Рассылка делается
             # копированием исходного сообщения, поэтому Telegram-разметка и медиа
             # не пересобираются вручную.

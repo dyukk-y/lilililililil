@@ -439,20 +439,6 @@ def advertising_subscription_back_keyboard(ad_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
     ])
 
-def advertising_broadcast_back_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Назад", callback_data=f"ad_broadcast_back:{ad_id}")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-def advertising_broadcast_confirm_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Всё верно", callback_data=f"ad_broadcast_confirm:{ad_id}")],
-        [InlineKeyboardButton(text="↩️ Изменить расписание", callback_data=f"ad_broadcast_back:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
 def advertising_duration_keyboard(ad_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="24 часа", callback_data=f"ad_duration:{ad_id}:24"),
@@ -491,15 +477,6 @@ def advertising_combo_keyboard(ad_id: int) -> InlineKeyboardMarkup:
     ])
 
 
-def advertising_confirm_keyboard(ad_id: int, ad_type: str = "post") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Опубликовать", callback_data=f"ad_confirm:{ad_id}")],
-        [InlineKeyboardButton(text="↩️ Назад", callback_data=f"ad_confirm_back:{ad_id}:{ad_type}")],
-        [InlineKeyboardButton(text="✏️ Заменить пост", callback_data=f"ad_replace:{ad_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"ad_cancel:{ad_id}")],
-    ])
-
-
 def advertising_retry_keyboard(ad_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Повторить", callback_data=f"ad_retry:{ad_id}")],
@@ -508,15 +485,6 @@ def advertising_retry_keyboard(ad_id: int) -> InlineKeyboardMarkup:
     ])
 
 
-def advertising_done_keyboard(ad_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 Удалить сейчас", callback_data=f"ad_delete_now:{ad_id}")],
-        [InlineKeyboardButton(text="📍 Снять закреп сейчас", callback_data=f"ad_unpin_now:{ad_id}")],
-    ])
-
-
-
-# ================== АВТОРУ: ПОСТ ОПУБЛИКОВАН / ЗАКРЕП ==================
 def published_author_keyboard(post_id: int, link: str | None) -> InlineKeyboardMarkup:
     rows = []
     if link:

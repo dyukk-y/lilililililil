@@ -406,7 +406,7 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
         await db.execute("ALTER TABLE advertising_posts ADD COLUMN ad_type TEXT DEFAULT 'post'")
         logger.info("Миграция: добавлена колонка advertising_posts.ad_type")
     ads_cols = await _columns("advertising_posts")
-    for col, ddl in (("subscription_type", "TEXT"), ("subscription_id", "TEXT"), ("subscription_username", "TEXT"), ("subscription_name", "TEXT"), ("subscription_url", "TEXT"), ("subscription_hours", "INTEGER DEFAULT 0"), ("broadcast_count", "INTEGER DEFAULT 0")):
+    for col, ddl in (("subscription_type", "TEXT"), ("subscription_id", "TEXT"), ("subscription_username", "TEXT"), ("subscription_name", "TEXT"), ("subscription_url", "TEXT"), ("subscription_hours", "INTEGER DEFAULT 0"), ("broadcast_count", "INTEGER DEFAULT 0"), ("publish_at", "TEXT"), ("combo_key", "TEXT")):
         if col not in ads_cols:
             await db.execute(f"ALTER TABLE advertising_posts ADD COLUMN {col} {ddl}")
             logger.info("Миграция: добавлена колонка advertising_posts.%s", col)
@@ -1563,7 +1563,7 @@ async def publish_advertising_post(ad_id: int, channel_message_id: int,
             """UPDATE advertising_posts
                SET channel_message_id=?, pin_duration_hours=?, published_at=?,
                    expires_at=?, pin_expires_at=?, status='published', error=NULL
-               WHERE id=? AND status='draft'""",
+               WHERE id=? AND status IN ('draft','scheduled')""",
             (
                 channel_message_id, pin_duration_hours, now.isoformat(),
                 (now + timedelta(hours=(await _ad_duration(db, ad_id)))).isoformat(),
@@ -1905,3 +1905,98 @@ async def finish_post_pin(pin_id: Optional[int] = None, post_id: Optional[int] =
         elif post_id is not None:
             await db.execute("UPDATE post_pins SET status='done' WHERE post_id=? AND status='active'", (post_id,))
         await db.commit()
+
+
+# ================== РЕКЛАМА: РАСПИСАНИЕ И УПРАВЛЕНИЕ ==================
+AD_FIELDS = (
+    "id, admin_id, ad_type, combo_key, status, duration_hours, pin_duration_hours, "
+    "channel_message_id, publish_at, published_at, expires_at, pin_expires_at, "
+    "subscription_name, subscription_hours, source_chat_id, source_message_id, "
+    "preview_chat_id, preview_message_id"
+)
+
+
+def _ad_row_to_dict(row) -> Optional[dict]:
+    if not row:
+        return None
+    keys = [k.strip() for k in AD_FIELDS.split(",")]
+    return dict(zip(keys, row))
+
+
+async def get_ad(ad_id: int) -> Optional[dict]:
+    """Реклама в виде словаря — без «магических» индексов ad[17]."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(f"SELECT {AD_FIELDS} FROM advertising_posts WHERE id=?", (ad_id,))
+        return _ad_row_to_dict(await cur.fetchone())
+
+
+async def list_ads(statuses=("scheduled", "published", "error"), limit: int = 20) -> List[dict]:
+    placeholders = ",".join("?" for _ in statuses)
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            f"SELECT {AD_FIELDS} FROM advertising_posts WHERE status IN ({placeholders}) "
+            "ORDER BY COALESCE(publish_at, published_at, created_at) DESC LIMIT ?",
+            (*statuses, limit),
+        )
+        return [_ad_row_to_dict(r) for r in await cur.fetchall()]
+
+
+async def set_advertising_combo_key(ad_id: int, combo_key: Optional[str]) -> None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE advertising_posts SET combo_key=? WHERE id=?", (combo_key, ad_id))
+        await db.commit()
+
+
+async def schedule_advertising_post(ad_id: int, publish_at: datetime) -> bool:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "UPDATE advertising_posts SET status='scheduled', publish_at=?, error=NULL "
+            "WHERE id=? AND status='draft'",
+            (publish_at.isoformat(), ad_id),
+        )
+        await db.commit()
+        return cur.rowcount == 1
+
+
+async def cancel_scheduled_advertising_post(ad_id: int) -> bool:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "UPDATE advertising_posts SET status='cancelled' WHERE id=? AND status='scheduled'", (ad_id,))
+        await db.execute("DELETE FROM advertising_broadcasts WHERE ad_id=? AND status='scheduled'", (ad_id,))
+        await db.execute("DELETE FROM advertising_subscriptions WHERE ad_id=?", (ad_id,))
+        await db.commit()
+        return cur.rowcount == 1
+
+
+async def get_due_scheduled_ads(now: Optional[datetime] = None) -> List[int]:
+    now = now or datetime.now(TIMEZONE)
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id FROM advertising_posts WHERE status='scheduled' AND publish_at<=? ORDER BY publish_at",
+            (now.isoformat(),),
+        )
+        return [r[0] for r in await cur.fetchall()]
+
+
+async def extend_advertising_post(ad_id: int, hours: int) -> Optional[str]:
+    """Продлевает срок публикации. Возвращает новый expires_at."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT expires_at FROM advertising_posts WHERE id=? AND status='published'", (ad_id,))
+        row = await cur.fetchone()
+        if not row or not row[0]:
+            return None
+        new_expires = (datetime.fromisoformat(row[0]) + timedelta(hours=hours)).isoformat()
+        await db.execute(
+            "UPDATE advertising_posts SET expires_at=?, duration_hours=duration_hours+? WHERE id=?",
+            (new_expires, hours, ad_id),
+        )
+        await db.commit()
+        return new_expires
+
+
+async def count_pending_ad_broadcasts(ad_id: int) -> int:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM advertising_broadcasts WHERE ad_id=? AND status='scheduled'", (ad_id,))
+        return (await cur.fetchone())[0]

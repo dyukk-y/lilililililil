@@ -18,6 +18,7 @@ from app.handlers.author_lookup import complete_author_reveal
 from app.handlers.priority_boost import complete_priority_boost
 from app.handlers.unlock import complete_unlock
 from app.handlers.donation import complete_donation
+from app.handlers.post_pin import complete_pin, validate_pin_order
 from app.handlers.unlock import SCOPE_LABELS, get_ban_status
 from app.database import get_post_by_id, get_star_purchase
 
@@ -68,6 +69,9 @@ async def _validate_payload(payload: str, payer_id: int) -> str | None:
             return "Вы не заблокированы — оплата не требуется."
         return None
 
+    if kind == "pin" and len(parts) == 3:
+        return await validate_pin_order(payer_id, int(parts[1]), int(parts[2]))
+
     if kind == "donation" and len(parts) == 3:
         if int(parts[1]) != payer_id:
             return "Счёт выставлен другому пользователю."
@@ -113,6 +117,10 @@ async def process_successful_payment(msg: Message):
         if parts[0] == "unlock" and len(parts) == 2:
             _, scope = parts
             await complete_unlock(msg, scope)
+            return
+
+        if parts[0] == "pin" and len(parts) == 3:
+            await complete_pin(msg, int(parts[1]), int(parts[2]))
             return
 
         if parts[0] == "donation" and len(parts) == 3:

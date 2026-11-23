@@ -2,6 +2,7 @@
 import logging
 import time
 
+from aiogram.dispatcher.event.bases import CancelHandler, SkipHandler
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, Message
 
@@ -35,6 +36,10 @@ class ErrorHandlingMiddleware:
     async def __call__(self, handler, event, data):
         try:
             return await handler(event, data)
+        except (SkipHandler, CancelHandler):
+            # Служебные исключения aiogram (передать событие следующему
+            # обработчику / отменить) — это не ошибки.
+            raise
         except TelegramBadRequest as exc:
             # Повторное нажатие той же кнопки (edit_text с тем же текстом)
             # и слишком старый callback — это не ошибки бота, пугать
@@ -62,6 +67,65 @@ class ErrorHandlingMiddleware:
             logger.exception("Не удалось уведомить пользователя об ошибке")
 
 
+class ThrottlingMiddleware:
+    """Защита от спама: не больше RATE_LIMIT_EVENTS событий за
+    RATE_LIMIT_WINDOW секунд от одного пользователя в личке.
+
+    При превышении пользователь один раз получает предупреждение, а
+    дальнейшие сообщения до конца окна молча игнорируются — бот не тратит
+    на флудера ни запросы к Telegram, ни обращения к БД. Админы, оплаты и
+    сообщения в группах (комментарии, модерация) не ограничиваются.
+    """
+
+    def __init__(self, limit: int | None = None, window: float | None = None):
+        import os
+        self.limit = limit or int(os.getenv("RATE_LIMIT_EVENTS", "15") or 15)
+        self.window = window or float(os.getenv("RATE_LIMIT_WINDOW", "10") or 10)
+        self._hits: dict[int, list[float]] = {}
+        self._warned_until: dict[int, float] = {}
+
+    def _allowed(self, user_id: int) -> bool:
+        now = time.monotonic()
+        hits = [t for t in self._hits.get(user_id, ()) if now - t < self.window]
+        hits.append(now)
+        self._hits[user_id] = hits
+        if len(self._hits) > 20_000:  # периодическая чистка неактивных
+            for uid in [u for u, ts in self._hits.items() if not ts or now - ts[-1] > self.window]:
+                self._hits.pop(uid, None)
+                self._warned_until.pop(uid, None)
+        return len(hits) <= self.limit
+
+    async def __call__(self, handler, event, data):
+        user = getattr(event, "from_user", None)
+        if user is None or _is_payment_update(event) or _is_admin(user.id):
+            return await handler(event, data)
+        chat = event.chat if isinstance(event, Message) else (event.message.chat if event.message else None)
+        if chat is None or chat.type != "private":
+            return await handler(event, data)
+
+        if self._allowed(user.id):
+            return await handler(event, data)
+
+        now = time.monotonic()
+        if self._warned_until.get(user.id, 0) <= now:
+            self._warned_until[user.id] = now + self.window
+            logger.info("Антиспам: пользователь %s превысил лимит", user.id)
+            try:
+                text = "⏳ Слишком много действий. Подождите несколько секунд."
+                if isinstance(event, CallbackQuery):
+                    await event.answer(text, show_alert=True)
+                else:
+                    await event.answer(text)
+            except Exception:
+                pass
+        elif isinstance(event, CallbackQuery):
+            try:
+                await event.answer()
+            except Exception:
+                pass
+        return None
+
+
 class ChatValidationMiddleware:
     # Callback'и админ-панели должны работать для админа ВЕЗДЕ — и в личке,
     # и если он открыл /admin прямо в группе модераторов/администраторов.
@@ -86,7 +150,7 @@ class ChatValidationMiddleware:
         # или /post не в личке.
         "admin_", "ad_", "remove_sub_", "remove_blacklist_word_",
         "remove_auto_phrase", "rm_auto_phrase_", "add_auto_phrase",
-        "broadcast", "priority_pub_", "priority_rej_",
+        "broadcast", "priority_pub_", "priority_rej_", "arejr_",
     ]
 
     async def __call__(self, handler, event, data):
@@ -260,11 +324,13 @@ class SubscriptionMiddleware:
 
 def setup_middlewares(dp) -> None:
     error_middleware = ErrorHandlingMiddleware()
+    throttling_middleware = ThrottlingMiddleware()
     chat_validation_middleware = ChatValidationMiddleware()
     subscription_middleware = SubscriptionMiddleware()
 
     # Порядок важен: ошибка должна ловиться "снаружи" всех остальных.
     for observer in (dp.message, dp.callback_query):
         observer.middleware(error_middleware)
+        observer.middleware(throttling_middleware)
         observer.middleware(chat_validation_middleware)
         observer.middleware(subscription_middleware)

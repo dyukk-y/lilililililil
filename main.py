@@ -38,9 +38,12 @@ from app.handlers import (
     unlock,
     advertising,
     donation,
+    post_pin,
+    common,
 )
 
 ROUTERS = (
+    common.commands_router,  # /cancel и /help работают из любого сценария
     start.router,
     subscriptions.router,
     posting.router,
@@ -62,10 +65,36 @@ ROUTERS = (
     unlock.router,
     advertising.router,
     donation.router,
+    post_pin.router,
+    common.router,  # всегда последним: «страховочные» обработчики
 )
 
 
 DROP_PENDING_UPDATES = os.getenv("DROP_PENDING_UPDATES", "false").lower() in ("1", "true", "yes", "on")
+
+
+async def _set_commands() -> None:
+    """Меню команд в Telegram (кнопка «/» рядом с полем ввода)."""
+    from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeChat
+    from app.config import ADMINS
+    user_commands = [
+        BotCommand(command="start", description="Главное меню"),
+        BotCommand(command="help", description="Как пользоваться ботом"),
+        BotCommand(command="cancel", description="Отменить текущее действие"),
+    ]
+    try:
+        await bot.set_my_commands(user_commands, scope=BotCommandScopeAllPrivateChats())
+        admin_commands = user_commands + [
+            BotCommand(command="admin", description="Админ-панель"),
+            BotCommand(command="post", description="Рекламный пост"),
+        ]
+        for admin_id in ADMINS:
+            try:
+                await bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=admin_id))
+            except Exception:
+                pass  # админ ещё не писал боту
+    except Exception:
+        logger.warning("Не удалось установить меню команд", exc_info=True)
 
 
 async def main() -> None:
@@ -116,6 +145,7 @@ async def main() -> None:
         asyncio.create_task(learning_loop(), name="ai_learning"),
     ]
 
+    await _set_commands()
     logger.info("Бот запущен и готов к работе")
     # Накопившиеся за время простоя обновления больше НЕ выбрасываются по
     # умолчанию: среди них могут быть successful_payment — раньше оплата,
@@ -128,6 +158,9 @@ async def main() -> None:
         for task in background:
             task.cancel()
         await asyncio.gather(*background, return_exceptions=True)
+        # Хранилище диалогов держит открытое соединение с SQLite — без
+        # явного закрытия процесс не завершится.
+        await dp.storage.close()
         await bot.session.close()
         logger.info("Фоновые задачи остановлены, сессия закрыта")
 

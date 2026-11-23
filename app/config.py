@@ -158,6 +158,15 @@ PRIORITY_BOOST_PRICE_STARS = _optional_int("PRIORITY_BOOST_PRICE_STARS", 50)
 # ================== ПЛАТНАЯ РАЗБЛОКИРОВКА (бот/канал/комментарии, Telegram Stars) ==================
 UNLOCK_PRICE_STARS = _optional_int("UNLOCK_PRICE_STARS", 50)
 
+# ================== ПЛАТНОЕ ЗАКРЕПЛЕНИЕ СВОЕГО ПОСТА (Telegram Stars) ==================
+# Цена за 1 час закрепа; варианты длительности — PIN_HOURS_OPTIONS.
+PIN_PRICE_STARS_PER_HOUR = _optional_int("PIN_PRICE_STARS_PER_HOUR", 15)
+PIN_HOURS_OPTIONS = (1, 3, 6, 12, 24)
+
+# ================== УВЕДОМЛЕНИЕ АВТОРУ О ПУБЛИКАЦИИ ==================
+# 1 — автор получает сообщение «пост опубликован» со ссылкой на пост.
+NOTIFY_AUTHOR_ON_PUBLISH = 0 if os.getenv("NOTIFY_AUTHOR_ON_PUBLISH", "true").lower() in ("0", "false", "no", "off") else 1
+
 # ================== СУПЕР-АДМИНИСТРАТОРЫ ==================
 # Расширенные права: редактирование динамических настроек бота (цены,
 # лимиты, ID чатов и т.д. — см. app/runtime_settings.py) и выгрузка

@@ -298,6 +298,21 @@ async def init_db() -> None:
             UNIQUE(broadcast_id, user_id)
         )""")
 
+        # Платные закрепы постов пользователей (снимаются автоматически).
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS post_pins(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            channel_message_id INTEGER NOT NULL,
+            hours INTEGER NOT NULL,
+            pinned_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            charge_id TEXT
+        )""")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_post_pins_status ON post_pins(status, expires_at)")
+
         await db.commit()
 
         # Для тех, кто обновляется со старой версии БД (созданной до появления
@@ -1841,3 +1856,52 @@ async def get_user_export_stats() -> List[tuple]:
         """)
         return await cur.fetchall()
 
+
+
+# ================== ПЛАТНЫЕ ЗАКРЕПЫ ПОСТОВ ==================
+async def get_active_pin(post_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id, expires_at FROM post_pins WHERE post_id=? AND status='active'", (post_id,))
+        return await cur.fetchone()
+
+
+async def add_post_pin(post_id: int, user_id: int, channel_message_id: int, hours: int, charge_id: str) -> datetime:
+    """Добавляет закреп. Если пост уже закреплён — продлевает срок."""
+    now = datetime.now(TIMEZONE).replace(tzinfo=None)
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id, expires_at FROM post_pins WHERE post_id=? AND status='active'", (post_id,))
+        row = await cur.fetchone()
+        if row:
+            base = max(now, datetime.fromisoformat(row[1]))
+            expires = base + timedelta(hours=hours)
+            await db.execute("UPDATE post_pins SET expires_at=?, hours=hours+? WHERE id=?",
+                             (expires.isoformat(), hours, row[0]))
+        else:
+            expires = now + timedelta(hours=hours)
+            await db.execute(
+                "INSERT INTO post_pins(post_id, user_id, channel_message_id, hours, pinned_at, expires_at, charge_id) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (post_id, user_id, channel_message_id, hours, now.isoformat(), expires.isoformat(), charge_id),
+            )
+        await db.commit()
+        return expires
+
+
+async def get_expired_pins() -> List[tuple]:
+    now = datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id, post_id, user_id, channel_message_id FROM post_pins "
+            "WHERE status='active' AND expires_at<=?", (now,))
+        return await cur.fetchall()
+
+
+async def finish_post_pin(pin_id: Optional[int] = None, post_id: Optional[int] = None) -> None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        if pin_id is not None:
+            await db.execute("UPDATE post_pins SET status='done' WHERE id=?", (pin_id,))
+        elif post_id is not None:
+            await db.execute("UPDATE post_pins SET status='done' WHERE post_id=? AND status='active'", (post_id,))
+        await db.commit()

@@ -220,6 +220,39 @@ async def _disable_moderator_card(post_id: int, status: str) -> None:
             logger.info("Не удалось обновить карточку модераторов поста #%s: %s", post_id, e)
 
 
+async def channel_post_link(channel_message_id: Optional[int]) -> Optional[str]:
+    """Ссылка на сообщение в основном канале (публичном или приватном)."""
+    if not channel_message_id:
+        return None
+    username = await _get_channel_username()
+    if username:
+        return f"https://t.me/{username}/{channel_message_id}"
+    channel_id = str(get_setting("MAIN_CHANNEL_ID"))
+    if channel_id.startswith("-100"):
+        return f"https://t.me/c/{channel_id[4:]}/{channel_message_id}"
+    return None
+
+
+async def notify_author_published(post_id: int, user_id: int, channel_message_id: int) -> None:
+    """Сообщает автору, что пост опубликован, со ссылкой и кнопкой закрепа.
+    Не раскрывает, было ли это автоматически или вручную."""
+    if not get_setting("NOTIFY_AUTHOR_ON_PUBLISH") or not user_id:
+        return
+    from app.keyboards import published_author_keyboard
+    link = await channel_post_link(channel_message_id)
+    try:
+        await bot.send_message(
+            user_id,
+            f"🎉 <b>Ваш пост #{post_id} опубликован!</b>\n\n"
+            "Хотите, чтобы его увидело больше людей? Закрепите пост вверху канала.",
+            parse_mode="HTML",
+            reply_markup=published_author_keyboard(post_id, link),
+        )
+    except Exception as e:
+        # Автор мог заблокировать бота — это не ошибка публикации.
+        logger.info("Не удалось уведомить автора поста #%s о публикации: %s", post_id, e)
+
+
 async def publish_post(post_id: int, moderator_id: int = 0) -> Tuple[bool, str]:
     """Надёжная публикация: DB-claim -> Telegram -> DB-finish.
     Если Telegram упал, пост возвращается в очередь с retry и никогда не
@@ -264,6 +297,7 @@ async def publish_post(post_id: int, moderator_id: int = 0) -> Tuple[bool, str]:
         ("mentions", lambda: register_mentions_from_text(text)),
         ("notify_admins", lambda: notify_admins_outcome(post_id, "published")),
         ("moderator_card", lambda: _disable_moderator_card(post_id, "published")),
+        ("notify_author", lambda: notify_author_published(post_id, user_id, sent.message_id)),
         ("log", lambda: log("publish", f"post #{post_id} published by {moderator_id or 'bot'}")),
     ):
         try:
@@ -861,6 +895,11 @@ async def delete_published_post(post_id: int, reason: str, decided_by: Optional[
         logger.warning(f"Не удалось удалить сообщение #{channel_message_id} из канала (пост #{post_id}): {e}")
         return False, "telegram_delete_failed"
     await mark_post_deleted(post_id)
+    try:
+        from app.database import finish_post_pin
+        await finish_post_pin(post_id=post_id)
+    except Exception:
+        logger.exception("Не удалось закрыть закреп удалённого поста #%s", post_id)
 
     try:
         await bot.send_message(

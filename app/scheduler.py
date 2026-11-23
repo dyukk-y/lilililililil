@@ -394,6 +394,8 @@ async def maintenance_loop() -> None:
         try:
             if LOW_MEMORY_MODE:
                 await asyncio.to_thread(release_if_idle, NUDENET_IDLE_UNLOAD_SECONDS)
+            from app.handlers.post_pin import unpin_expired
+            await unpin_expired()
             now = asyncio.get_running_loop().time()
             if now - last_daily >= 24 * 3600 or last_daily == 0.0:
                 last_daily = now

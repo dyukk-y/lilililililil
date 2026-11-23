@@ -504,3 +504,53 @@ def advertising_done_keyboard(ad_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📍 Снять закреп сейчас", callback_data=f"ad_unpin_now:{ad_id}")],
     ])
 
+
+
+# ================== АВТОРУ: ПОСТ ОПУБЛИКОВАН / ЗАКРЕП ==================
+def published_author_keyboard(post_id: int, link: str | None) -> InlineKeyboardMarkup:
+    rows = []
+    if link:
+        rows.append([InlineKeyboardButton(text="🔗 Открыть пост", url=link)])
+    rows.append([InlineKeyboardButton(text="📌 Закрепить в канале", callback_data=f"pin_offer_{post_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def pin_hours_keyboard(post_id: int, hours_options, price_per_hour: int) -> InlineKeyboardMarkup:
+    buttons = [
+        InlineKeyboardButton(text=f"{h} ч · {h * price_per_hour} ⭐", callback_data=f"pin_buy_{post_id}_{h}")
+        for h in hours_options
+    ]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton(text="❌ Не нужно", callback_data="pin_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def post_preview_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="post_send")],
+        [InlineKeyboardButton(text="✏️ Изменить", callback_data="post_edit"),
+         InlineKeyboardButton(text="❌ Отмена", callback_data="post_cancel")],
+    ])
+
+
+# ================== ГОТОВЫЕ ПРИЧИНЫ ОТКАЗА ==================
+REJECT_REASONS = [
+    "Нет эмодзи 🧑/👩",
+    "Реклама или продажа",
+    "Нарушение правил канала",
+    "Оскорбления или грубость",
+    "Фото не подходит",
+    "Такой пост уже был",
+    "Непонятный текст",
+]
+
+
+def reject_reasons_keyboard(post_id: int, prefix: str, cancel_callback: str) -> InlineKeyboardMarkup:
+    """prefix: rejr (карточка модерации) или arejr (админ-панель)."""
+    buttons = [
+        InlineKeyboardButton(text=reason, callback_data=f"{prefix}_{post_id}_{i}")
+        for i, reason in enumerate(REJECT_REASONS)
+    ]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data=cancel_callback)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

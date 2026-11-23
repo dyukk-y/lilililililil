@@ -209,6 +209,7 @@ async def test_text_post_full_flow(app_ready, fake):
     await _feed(app_ready, H.callback_update(uid, "offer"))
     await _feed(app_ready, H.callback_update(uid, "no_photo"))
     await _feed(app_ready, H.message_update(uid, "🧑 расскажите про парня <в кепке>"))
+    await _feed(app_ready, H.callback_update(uid, "post_send"))
     texts = [c.text or "" for c in fake.of("SendMessage")]
     assert any("отправлен на модерацию" in t for t in texts), texts
     card = [c for c in fake.of("SendMessage") if int(c.chat_id) == -1001000000002]

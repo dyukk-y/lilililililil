@@ -128,34 +128,110 @@ async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> No
         await state.clear()
         return await msg.answer("⚠️ Фото потерялось, начните заново.", reply_markup=menu_btn())
 
-    checking_msg = await msg.answer("🔎 Проверяю фото...")
-    try:
-        is_explicit, nsfw_class, nsfw_score = await screen_photo(data["photo"])
-    finally:
-        try:
-            await checking_msg.delete()
-        except Exception:
-            pass
+    await _show_preview(msg, state, text, data["photo"])
 
-    if is_explicit:
-        await msg.answer(
-            "❌ <b>Публикация отклонена</b>\n\n"
-            "На фото обнаружен запрещённый контент.",
-            parse_mode='HTML',
-            reply_markup=menu_btn()
-        )
-        await log("auto_reject_nsfw_photo", f"user {msg.from_user.id}: class={nsfw_class} score={nsfw_score:.2f}")
-        await state.clear()
+
+# ================== ПРЕДПРОСМОТР ПЕРЕД ОТПРАВКОЙ ==================
+async def _show_preview(msg: Message, state: FSMContext, text: str, photo: str | None) -> None:
+    """Показывает пост ровно так, как он будет выглядеть в канале, с кнопками
+    «Отправить / Изменить / Отмена». Опечатку можно исправить до модерации."""
+    await state.update_data(draft_text=text, photo=photo)
+    await state.set_state(PostState.confirm)
+    await msg.answer("👀 <b>Так пост будет выглядеть в канале:</b>", parse_mode='HTML')
+    if photo:
+        await msg.answer_photo(photo=photo, caption=h(text), parse_mode='HTML', reply_markup=post_preview_keyboard())
+    else:
+        await msg.answer(h(text), parse_mode='HTML', reply_markup=post_preview_keyboard())
+
+
+@router.message(PostState.confirm)
+async def preview_new_text(msg: Message, state: FSMContext):
+    """Вместо нажатия кнопки пользователь прислал исправленный текст (или
+    новое фото с подписью) — обновляем черновик и показываем заново."""
+    data = await state.get_data()
+    photo = data.get("photo")
+    if msg.photo:
+        photo = msg.photo[-1].file_id
+        await state.update_data(photo=photo)
+    text = msg.text or msg.caption
+    if not text:
+        return await msg.answer("✏️ Пришлите исправленный текст или нажмите «✅ Отправить» выше.")
+    if not await _passes_auto_checks(msg, state, text, has_photo=bool(photo)):
         return
+    await _show_preview(msg, state, text, photo)
 
+
+@router.callback_query(F.data == "post_edit")
+async def preview_edit(cb: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if await state.get_state() != PostState.confirm.state:
+        return await cb.answer("⚠️ Черновик уже отправлен или устарел.", show_alert=True)
+    await state.set_state(PostState.wait_text_after_photo if data.get("photo") else PostState.wait_text_only)
+    await cb.answer()
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await cb.message.answer(
+        "✏️ Пришлите исправленный текст поста"
+        + (" (фото сохранится)." if data.get("photo") else "."),
+        reply_markup=back_to_post_type(),
+    )
+
+
+@router.callback_query(F.data == "post_cancel")
+async def preview_cancel(cb: CallbackQuery, state: FSMContext):
     await state.clear()
+    await cb.answer("Черновик удалён")
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await cb.message.answer("🗑 Черновик удалён.", reply_markup=main_menu())
 
-    post_id = await create_post(msg.from_user.id, text, data["photo"])
-    logger.info(f"Создан пост #{post_id} с фото от пользователя {msg.from_user.id}")
 
-    await _notify_submitted(msg, post_id)
-    await _route_safely(post_id, photo_checked=True)
-    await log("new_post", f"photo post #{post_id} from user {msg.from_user.id}")
+@router.callback_query(F.data == "post_send")
+async def preview_send(cb: CallbackQuery, state: FSMContext):
+    if await state.get_state() != PostState.confirm.state:
+        return await cb.answer("⚠️ Этот пост уже отправлен или устарел.", show_alert=True)
+    data = await state.get_data()
+    text, photo = data.get("draft_text"), data.get("photo")
+    # Сразу очищаем состояние: двойное нажатие не создаст два поста.
+    await state.clear()
+    await cb.answer()
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    if not text:
+        return await cb.message.answer("⚠️ Черновик потерялся, начните заново.", reply_markup=main_menu())
+
+    user_id = cb.from_user.id
+    if await _limit_reached(user_id):
+        return await cb.message.answer(_limit_text(), reply_markup=menu_btn())
+
+    if photo:
+        checking_msg = await cb.message.answer("🔎 Проверяю фото...")
+        try:
+            is_explicit, nsfw_class, nsfw_score = await screen_photo(photo)
+        finally:
+            try:
+                await checking_msg.delete()
+            except Exception:
+                pass
+        if is_explicit:
+            await log("auto_reject_nsfw_photo", f"user {user_id}: class={nsfw_class} score={nsfw_score:.2f}")
+            return await cb.message.answer(
+                "❌ <b>Публикация отклонена</b>\n\nНа фото обнаружен запрещённый контент.",
+                parse_mode='HTML', reply_markup=menu_btn(),
+            )
+
+    post_id = await create_post(user_id, text, photo)
+    logger.info("Создан пост #%s (%s) от пользователя %s", post_id, "фото" if photo else "текст", user_id)
+    await _notify_submitted(cb.message, post_id)
+    await _route_safely(post_id, photo_checked=bool(photo))
+    await log("new_post", f"{'photo' if photo else 'text'} post #{post_id} from user {user_id}")
+
 
 # ================== NO PHOTO ==================
 @router.callback_query(F.data == "no_photo")
@@ -181,14 +257,7 @@ async def get_text_only(msg: Message, state: FSMContext):
     if not await _passes_auto_checks(msg, state, msg.text):
         return
 
-    await state.clear()
-
-    post_id = await create_post(msg.from_user.id, msg.text, None)
-    logger.info(f"Создан текстовый пост #{post_id} от пользователя {msg.from_user.id}")
-
-    await _notify_submitted(msg, post_id)
-    await _route_safely(post_id)
-    await log("new_post", f"text post #{post_id} from user {msg.from_user.id}")
+    await _show_preview(msg, state, msg.text, None)
 
 
 async def _route_safely(post_id: int, photo_checked: bool = False) -> None:
@@ -213,7 +282,8 @@ async def _notify_submitted(msg: Message, post_id: int) -> None:
     await msg.answer(
         f"✅ <b>Пост #{post_id} отправлен на модерацию</b>\n\n"
         f"📊 Постов в очереди: <b>{position}</b>\n"
-        "🔔 Мы сообщим, если пост будет отклонён.\n\n"
+        + ("🔔 Мы сообщим о результате.\n\n" if get_setting("NOTIFY_AUTHOR_ON_PUBLISH")
+           else "🔔 Мы сообщим, если пост будет отклонён.\n\n") +
         "<i>Хотите быстрее? Нажмите «⚡ Ускорить проверку».</i>",
         parse_mode='HTML',
         reply_markup=priority_boost_keyboard(post_id)

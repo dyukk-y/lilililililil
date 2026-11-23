@@ -6,6 +6,7 @@ class PostState(StatesGroup):
     wait_photo = State()
     wait_text_after_photo = State()
     wait_text_only = State()
+    confirm = State()  # предпросмотр: «Отправить / Изменить»
 
 class RejectState(StatesGroup):
     wait_reason = State()

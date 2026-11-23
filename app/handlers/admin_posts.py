@@ -297,11 +297,9 @@ async def admin_reject_confirm(cb: CallbackQuery, state: FSMContext):
     
     await edit_text_or_caption(cb.message, 
         f"📝 <b>Причина отклонения поста #{post_id}</b>\n\n"
-        "Напишите причину, которая будет отправлена автору:",
+        "Выберите готовую причину или напишите свою — она будет отправлена автору:",
         parse_mode='HTML',
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="❌ Отмена", callback_data="admin_reject_cancel")]
-        ])
+        reply_markup=reject_reasons_keyboard(post_id, "arejr", "admin_reject_cancel"),
     )
 
 @router.message(AdminPostState.wait_reject_reason)
@@ -396,3 +394,29 @@ async def admin_reject_cancel(cb: CallbackQuery, state: FSMContext):
     
     await state.clear()
     await show_pending_posts_page(cb, page=1)
+
+
+@router.callback_query(F.data.startswith("arejr_"))
+async def admin_reject_preset(cb: CallbackQuery, state: FSMContext):
+    """Готовая причина в админском отклонении -> сразу экран подтверждения."""
+    if not _is_admin(cb.from_user.id):
+        return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
+    try:
+        _, pid_s, idx_s = cb.data.split("_")
+        post_id, reason = int(pid_s), REJECT_REASONS[int(idx_s)]
+    except (ValueError, IndexError):
+        return await cb.answer("❌ Неверный запрос", show_alert=True)
+    post = await get_post_by_id(post_id)
+    if not post or post[5] not in ("moderation", "approved"):
+        await state.clear()
+        return await cb.answer("❌ Пост уже был обработан ранее.", show_alert=True)
+    await state.update_data(post_id=post_id, reject_reason=reason)
+    await state.set_state(AdminPostState.wait_reject_confirm)
+    await cb.answer()
+    await edit_text_or_caption(
+        cb.message,
+        f"📨 <b>Пост #{post_id}</b>\n\n{h(shorten(post[2], 500))}\n\n"
+        f"📝 <b>Причина отклонения:</b>\n{h(reason)}\n\nОтправить это пользователю?",
+        parse_mode='HTML',
+        reply_markup=admin_reject_reason_confirm_keyboard(post_id),
+    )

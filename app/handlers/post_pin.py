@@ -18,6 +18,7 @@ from app.database import (
 from app.keyboards import menu_btn, pin_hours_keyboard
 from app.loader import bot
 from app.runtime_settings import get as get_setting
+from app.tg_ui import send_with_effect, tg_time
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -115,9 +116,10 @@ async def complete_pin(msg: Message, post_id: int, hours: int) -> None:
 
     expires = await add_post_pin(post_id, user_id, channel_message_id, hours, charge_id)
     await log("pin_purchase", f"user {user_id} pinned post #{post_id} for {hours}h")
-    await msg.answer(
+    await send_with_effect(
+        bot, msg.chat.id,
         f"📌 <b>Пост #{post_id} закреплён!</b>\n\n"
-        f"Закреп снимется автоматически {expires.strftime('%d.%m в %H:%M')} (Новосибирск).",
+        f"Закреп снимется автоматически: {tg_time(expires)}.",
         parse_mode="HTML",
         reply_markup=menu_btn(),
     )

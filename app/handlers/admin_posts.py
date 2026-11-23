@@ -14,6 +14,7 @@ from app.states import *
 from app.validators import *
 from app.services import *
 from app.utils import h, shorten, edit_text_or_caption
+from app.tg_ui import tg_time_iso
 
 router = Router()
 
@@ -60,11 +61,7 @@ async def show_pending_posts_page(cb: CallbackQuery, page: int):
         preview = h(shorten(post_text or "", 50))
 
         if scheduled_time:
-            try:
-                sched_str = datetime.fromisoformat(scheduled_time).strftime('%d.%m.%Y %H:%M')
-            except ValueError:
-                sched_str = scheduled_time
-            time_line = f"   🕐 Публикация: {sched_str} (Новосибирск)"
+            time_line = f"   🕐 Публикация: {tg_time_iso(scheduled_time)}"
         else:
             time_line = "   🕐 Ждёт решения модератора (до 24 ч.)"
 

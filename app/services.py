@@ -43,6 +43,7 @@ from app.keyboards import (
 from app.scheduler import pick_schedule_slot, rebalance_daily_queue
 from app.moderation_photo import check_photo_nsfw, photo_detector_available
 from app.utils import CAPTION_LIMIT, TEXT_LIMIT, h, shorten
+from app.tg_ui import btn, send_with_effect, tg_time
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,8 @@ async def notify_admins_outcome(post_id: int, status: str, reason: Optional[str]
             )
 
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=button_text, callback_data=callback_data)],
+                [InlineKeyboardButton(text=button_text, callback_data=callback_data),
+                 btn("📋 ID автора", copy=user_id)],
                 [InlineKeyboardButton(text="🤖 ИИ ошибся", callback_data=f"ai_error_{post_id}")],
             ])
             topic_id = get_setting("ADMINS_TOPIC_ID") or None
@@ -241,8 +243,8 @@ async def notify_author_published(post_id: int, user_id: int, channel_message_id
     from app.keyboards import published_author_keyboard
     link = await channel_post_link(channel_message_id)
     try:
-        await bot.send_message(
-            user_id,
+        await send_with_effect(
+            bot, user_id,
             f"🎉 <b>Ваш пост #{post_id} опубликован!</b>\n\n"
             "Хотите, чтобы его увидело больше людей? Закрепите пост вверху канала.",
             parse_mode="HTML",
@@ -419,10 +421,9 @@ async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
             ai_score, ai_conf, ai_decision, ai_reason, ocr_text = analysis
 
     if scheduled_time:
-        formatted_time = scheduled_time.strftime("%d.%m.%Y %H:%M")
         header = (
             f"🤖 <b>ПОСТ #{post_id} · ГОТОВ К ПУБЛИКАЦИИ</b>\n"
-            f"<blockquote>🕐 <b>По расписанию:</b> {formatted_time} (Новосибирск)</blockquote>\n"
+            f"<blockquote>🕐 <b>По расписанию:</b> {tg_time(scheduled_time)}</blockquote>\n"
         )
     else:
         timeout_hours = get_setting("MODERATION_TIMEOUT_HOURS")
@@ -505,10 +506,12 @@ def _build_review_text(header: str, ai_block: str, text: Optional[str], ocr_text
             f"{header}{ai_block}📝 <b>Текст публикации</b>\n"
             f"<blockquote>{h(shorten(text or 'Без текста', text_len))}</blockquote>"
         )
+        # Второстепенные блоки — свёрнутыми цитатами: карточка короткая,
+        # а модератор раскрывает подробности одним нажатием.
         if ocr_text and ocr_len > 0:
-            result += f"\n\n🔤 <b>Текст на фото</b>\n<blockquote>{h(shorten(ocr_text, ocr_len))}</blockquote>"
+            result += f"\n\n🔤 <b>Текст на фото</b>\n<blockquote expandable>{h(shorten(ocr_text, ocr_len))}</blockquote>"
         if ai_reason and reason_len > 0:
-            result += f"\n\n💡 <b>Комментарий ИИ</b>\n<blockquote>{h(shorten(ai_reason, reason_len))}</blockquote>"
+            result += f"\n\n💡 <b>Комментарий ИИ</b>\n<blockquote expandable>{h(shorten(ai_reason, reason_len))}</blockquote>"
         return result
 
     def visible_len(value: str) -> int:

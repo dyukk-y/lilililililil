@@ -3,6 +3,8 @@ from typing import Any, Dict, List
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+from app.tg_ui import DANGER, PRIMARY, SUCCESS, btn
+
 
 def get_subscription_keyboard(subscriptions_to_show: List[Dict[str, Any]]) -> InlineKeyboardMarkup:
     """Клавиатура со ссылками на обязательные каналы/группы для подписки."""
@@ -20,7 +22,7 @@ def get_subscription_keyboard(subscriptions_to_show: List[Dict[str, Any]]) -> In
 # ================== KEYBOARDS ==================
 def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✍️ Предложить пост", callback_data="offer")],
+        [btn("✍️ Предложить пост", "offer", style=PRIMARY)],
         [
             InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
             InlineKeyboardButton(text="❓ Помощь", callback_data="faq"),
@@ -217,8 +219,8 @@ def broadcast_menu():
 def broadcast_confirm_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Начать рассылку", callback_data="broadcast_start"),
-            InlineKeyboardButton(text="❌ Отмена", callback_data="broadcast_cancel")
+            btn("✅ Начать рассылку", "broadcast_start", style=SUCCESS),
+            btn("❌ Отмена", "broadcast_cancel", style=DANGER)
         ]
     ])
 
@@ -252,8 +254,8 @@ def ads_keyboard():
 def moderation_keyboard(post_id: int) -> InlineKeyboardMarkup:
     """Основная клавиатура карточки модерации: действие + диагностика."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Опубликовать сейчас", callback_data=f"pub_{post_id}")],
-        [InlineKeyboardButton(text="❌ Отказать", callback_data=f"rej_{post_id}")],
+        [btn("✅ Опубликовать", f"pub_{post_id}", style=SUCCESS),
+         btn("❌ Отказать", f"rej_{post_id}", style=DANGER)],
         [InlineKeyboardButton(text="🤖 Почему ИИ так решил?", callback_data=f"why_ai_{post_id}")],
     ])
 
@@ -317,16 +319,16 @@ def pending_posts_keyboard(current_page: int, total_pages: int):
 def admin_post_confirm_keyboard(post_id: int, action: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Да", callback_data=f"admin_{action}_confirm_{post_id}"),
-            InlineKeyboardButton(text="❌ Нет", callback_data=f"admin_{action}_cancel")
+            btn("✅ Да", f"admin_{action}_confirm_{post_id}", style=SUCCESS if action == "publish" else DANGER),
+            btn("↩️ Нет", f"admin_{action}_cancel")
         ]
     ])
 
 def admin_reject_reason_confirm_keyboard(post_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ Отправить", callback_data=f"admin_reject_send_{post_id}"),
-            InlineKeyboardButton(text="❌ Отмена", callback_data="admin_reject_cancel")
+            btn("✅ Отправить", f"admin_reject_send_{post_id}", style=DANGER),
+            btn("↩️ Отмена", "admin_reject_cancel")
         ]
     ])
 
@@ -335,8 +337,8 @@ def admin_reject_reason_confirm_keyboard(post_id: int):
 def deletion_reviewer_keyboard(request_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🗑 Удалить", callback_data=f"delreq_approve_{request_id}"),
-            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"delreq_reject_{request_id}")
+            btn("🗑 Удалить", f"delreq_approve_{request_id}", style=DANGER),
+            btn("❌ Отклонить", f"delreq_reject_{request_id}")
         ]
     ])
 
@@ -349,12 +351,20 @@ def deletion_resolved_keyboard(text: str) -> InlineKeyboardMarkup:
 # ================== ПОИСК АВТОРА ПОСТА (платная расшифровка) ==================
 def author_reveal_keyboard(post_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔓 Расшифровать", callback_data=f"reveal_author_{post_id}")],
+        [btn("🔓 Расшифровать", f"reveal_author_{post_id}", style=PRIMARY)],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 
-def author_revealed_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+def author_revealed_keyboard(author_id: int | None = None, username: str | None = None) -> InlineKeyboardMarkup:
+    rows = []
+    copy_row = []
+    if author_id:
+        copy_row.append(btn("📋 ID", copy=author_id))
+    if username:
+        copy_row.append(btn("📋 @username", copy=f"@{username}"))
+    if copy_row:
+        rows.append(copy_row)
+    return InlineKeyboardMarkup(inline_keyboard=rows + [
         [InlineKeyboardButton(text="✅ Расшифровано", callback_data="disabled")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
@@ -394,15 +404,15 @@ def intro_comment_keyboard(post_id: int = 0, bot_username: str = "") -> InlineKe
 
 def priority_admin_keyboard(post_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🚀 Опубликовать сейчас", callback_data=f"priority_pub_{post_id}")],
-        [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"priority_rej_{post_id}")],
+        [btn("🚀 Опубликовать", f"priority_pub_{post_id}", style=SUCCESS),
+         btn("❌ Отклонить", f"priority_rej_{post_id}", style=DANGER)],
     ])
 
 
 # ================== УСКОРЕНИЕ ПРОВЕРКИ ПОСТА ==================
 def priority_boost_keyboard(post_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚡ Ускорить проверку", callback_data=f"priority_boost_{post_id}")]
+        [btn("⚡ Ускорить проверку", f"priority_boost_{post_id}", style=PRIMARY)]
     ])
 
 
@@ -511,13 +521,13 @@ def published_author_keyboard(post_id: int, link: str | None) -> InlineKeyboardM
     rows = []
     if link:
         rows.append([InlineKeyboardButton(text="🔗 Открыть пост", url=link)])
-    rows.append([InlineKeyboardButton(text="📌 Закрепить в канале", callback_data=f"pin_offer_{post_id}")])
+    rows.append([btn("📌 Закрепить в канале", f"pin_offer_{post_id}", style=PRIMARY)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def pin_hours_keyboard(post_id: int, hours_options, price_per_hour: int) -> InlineKeyboardMarkup:
     buttons = [
-        InlineKeyboardButton(text=f"{h} ч · {h * price_per_hour} ⭐", callback_data=f"pin_buy_{post_id}_{h}")
+        btn(f"{h} ч · {h * price_per_hour} ⭐", f"pin_buy_{post_id}_{h}", style=PRIMARY)
         for h in hours_options
     ]
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
@@ -527,9 +537,9 @@ def pin_hours_keyboard(post_id: int, hours_options, price_per_hour: int) -> Inli
 
 def post_preview_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Отправить", callback_data="post_send")],
-        [InlineKeyboardButton(text="✏️ Изменить", callback_data="post_edit"),
-         InlineKeyboardButton(text="❌ Отмена", callback_data="post_cancel")],
+        [btn("✅ Отправить", "post_send", style=SUCCESS)],
+        [btn("✏️ Изменить", "post_edit"),
+         btn("❌ Отмена", "post_cancel", style=DANGER)],
     ])
 
 
@@ -548,9 +558,9 @@ REJECT_REASONS = [
 def reject_reasons_keyboard(post_id: int, prefix: str, cancel_callback: str) -> InlineKeyboardMarkup:
     """prefix: rejr (карточка модерации) или arejr (админ-панель)."""
     buttons = [
-        InlineKeyboardButton(text=reason, callback_data=f"{prefix}_{post_id}_{i}")
+        btn(reason, f"{prefix}_{post_id}_{i}", style=DANGER)
         for i, reason in enumerate(REJECT_REASONS)
     ]
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
-    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data=cancel_callback)])
+    rows.append([btn("↩️ Отмена", cancel_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)

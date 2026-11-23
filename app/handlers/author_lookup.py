@@ -74,7 +74,7 @@ async def present_author_lookup(msg: Message, post_id: int) -> None:
         return await msg.answer(
             _lookup_text(author_id, author_username, revealed=True),
             parse_mode='HTML',
-            reply_markup=author_revealed_keyboard()
+            reply_markup=author_revealed_keyboard(author_id, author_username)
         )
 
     price = get_setting("AUTHOR_LOOKUP_PRICE_STARS")
@@ -143,7 +143,7 @@ async def reveal_author(cb: CallbackQuery):
         await cb.message.edit_text(
             _lookup_text(author_id, author_username, revealed=True),
             parse_mode='HTML',
-            reply_markup=author_revealed_keyboard()
+            reply_markup=author_revealed_keyboard(author_id, author_username)
         )
         return await cb.answer()
 
@@ -153,7 +153,7 @@ async def reveal_author(cb: CallbackQuery):
         await cb.message.edit_text(
             _lookup_text(author_id, author_username, revealed=True),
             parse_mode='HTML',
-            reply_markup=author_revealed_keyboard()
+            reply_markup=author_revealed_keyboard(author_id, author_username)
         )
         return await cb.answer()
 
@@ -192,7 +192,7 @@ async def complete_author_reveal(msg: Message, post_id: int, chat_id: int, messa
             message_id=message_id,
             text=_lookup_text(author_id, author_username, revealed=True),
             parse_mode='HTML',
-            reply_markup=author_revealed_keyboard()
+            reply_markup=author_revealed_keyboard(author_id, author_username)
         )
     except Exception:
         # если исходное сообщение отредактировать не удалось (например, слишком
@@ -200,7 +200,7 @@ async def complete_author_reveal(msg: Message, post_id: int, chat_id: int, messa
         await msg.answer(
             _lookup_text(author_id, author_username, revealed=True),
             parse_mode='HTML',
-            reply_markup=author_revealed_keyboard()
+            reply_markup=author_revealed_keyboard(author_id, author_username)
         )
 
     await msg.answer("✅ Оплата получена, данные расшифрованы выше.", reply_markup=menu_btn())

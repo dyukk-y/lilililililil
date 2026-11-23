@@ -15,6 +15,8 @@ from app.states import *
 from app.validators import *
 from app.services import *
 from app.scheduler import make_backup
+from app.runtime_settings import get as get_setting
+from app.tg_ui import edit_rich, expandable, rich_table, tg_time
 from app.utils import h, shorten
 
 logger = logging.getLogger(__name__)
@@ -73,17 +75,36 @@ async def admin_stats(cb: CallbackQuery):
         f"• В очереди/обрабатывается: {pending_posts}\n"
         f"• Отклонено: {rejected_posts}\n"
         f"• Создано сегодня: {today_posts}\n\n"
-        f"📅 <b>Публикация сегодня (Новосибирск):</b>\n"
+        f"📅 <b>Публикация сегодня:</b>\n"
         f"• Опубликовано: {published_today_nsk}\n"
         f"• Запланировано: {queued_today}\n"
-        f"• Занято слотов: {published_today_nsk + queued_today}\n\n"
-        f"🕐 <b>Время сервера:</b>\n"
-        f"{datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n"
-        f"🕐 <b>Время Новосибирска:</b>\n"
-        f"{datetime.now(TIMEZONE).strftime('%d.%m.%Y %H:%M:%S')}"
+        f"• Занято слотов: {published_today_nsk + queued_today} из {get_setting('DAILY_PUBLISH_LIMIT')}\n\n"
+        f"🕐 Обновлено: {tg_time(datetime.now(TIMEZONE))}"
     )
-    
-    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_back_keyboard([
+    rich = (
+        "<h3>📊 Статистика бота</h3>"
+        + rich_table([
+            ("👥 Пользователей", str(users_count)),
+            ("🆕 Новых сегодня", str(today_users)),
+            ("🚫 Заблокировано", str(banned_count)),
+            ("📝 Стоп-слов", str(blacklist_count)),
+            ("📢 Обязательных подписок", str(subscription_count)),
+        ], header=("Пользователи", ""))
+        + rich_table([
+            ("Всего", str(total_posts)),
+            ("✅ Опубликовано", str(published_posts)),
+            ("⏳ В очереди", str(pending_posts)),
+            ("❌ Отклонено", str(rejected_posts)),
+            ("🆕 Создано сегодня", str(today_posts)),
+        ], header=("Посты", ""))
+        + rich_table([
+            ("✅ Опубликовано", str(published_today_nsk)),
+            ("🗓 Запланировано", str(queued_today)),
+            ("📦 Занято слотов", f"{published_today_nsk + queued_today} / {get_setting('DAILY_PUBLISH_LIMIT')}"),
+        ], header=("Сегодня", ""))
+        + f"<footer>Обновлено: {tg_time(datetime.now(TIMEZONE))}</footer>"
+    )
+    await edit_rich(cb.message, rich, text, reply_markup=admin_back_keyboard([
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_stats")]]))
 
 # ================== ЛОГИ ==================
@@ -187,12 +208,27 @@ async def admin_ai_stats(cb: CallbackQuery):
         f"🙈 На ручной, но одобрено: <b>{stats['false_negative']}</b>"
         "</blockquote>\n\n"
         f"🧠 <b>Самообучаемая модель</b>\n{model_line}\n\n"
-        "<i>Модель учится на решениях модераторов: чем больше постов вы "
-        "публикуете и отклоняете вручную, тем точнее она подсказывает. "
-        "Сама она пост не публикует — только отправляет сомнительные на "
-        "ручную проверку.</i>"
+        + expandable(
+            "Модель учится на решениях модераторов: чем больше постов вы "
+            "публикуете и отклоняете вручную, тем точнее она подсказывает. "
+            "Сама она пост не публикует — только отправляет сомнительные на "
+            "ручную проверку."
+        )
     )
-    await cb.message.edit_text(text, parse_mode='HTML', reply_markup=admin_back_keyboard([
+    rich = (
+        "<h3>🤖 ИИ-модерация · 30 дней</h3>"
+        + rich_table([
+            ("🚦 Автопубликация", f"{stats['auto']} ({_pct(stats['auto'], routed)})"),
+            ("✋ Ручная проверка", str(stats['manual'])),
+            ("👮 Одобрено людьми", str(stats['approved'])),
+            ("👮 Отклонено людьми", str(stats['rejected'])),
+            ("⚠️ Авто, но отклонено", str(stats['false_positive'])),
+            ("🙈 Вручную, но одобрено", str(stats['false_negative'])),
+        ])
+        + f"<h4>🧠 Самообучаемая модель</h4><p>{model_line}</p>"
+        + "<footer>Модель учится на решениях модераторов и сама посты не публикует.</footer>"
+    )
+    await edit_rich(cb.message, rich, text, reply_markup=admin_back_keyboard([
         [InlineKeyboardButton(text="🧠 Переобучить сейчас", callback_data="admin_ai_retrain")]]))
 
 

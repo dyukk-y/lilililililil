@@ -11,6 +11,7 @@ from app.keyboards import *
 from app.states import *
 from app.validators import *
 from app.services import *
+from app.tg_ui import show_screen
 
 router = Router()
 
@@ -53,10 +54,10 @@ async def admin_panel_callback(cb: CallbackQuery):
     if not _is_admin(cb.from_user.id):
         return await cb.answer("🚫 У вас нет доступа.", show_alert=True)
     
-    await cb.message.edit_text(
-        await _admin_panel_text(), parse_mode='HTML',
-        reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS)
-    )
+    # show_screen: если предыдущий экран был «богатым» сообщением или фото,
+    # панель придёт новым сообщением вместо ошибки редактирования.
+    await show_screen(cb.message, await _admin_panel_text(),
+                      reply_markup=admin_menu(cb.from_user.id in SUPER_ADMINS))
 
 @router.callback_query(F.data == "blacklist")
 async def blacklist_panel(cb: CallbackQuery):

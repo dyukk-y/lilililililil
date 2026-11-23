@@ -13,6 +13,7 @@ from app.states import *
 from app.validators import *
 from app.services import *
 from app.utils import h
+from app.tg_ui import react
 
 router = Router()
 
@@ -135,8 +136,10 @@ async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> No
 async def _show_preview(msg: Message, state: FSMContext, text: str, photo: str | None) -> None:
     """Показывает пост ровно так, как он будет выглядеть в канале, с кнопками
     «Отправить / Изменить / Отмена». Опечатку можно исправить до модерации."""
-    await state.update_data(draft_text=text, photo=photo)
+    await state.update_data(draft_text=text, photo=photo, src_msg_id=msg.message_id)
     await state.set_state(PostState.confirm)
+    # 👀 на сообщении пользователя — видно, что бот его получил.
+    await react(msg.bot, msg.chat.id, msg.message_id, "👀")
     await msg.answer("👀 <b>Так пост будет выглядеть в канале:</b>", parse_mode='HTML')
     if photo:
         await msg.answer_photo(photo=photo, caption=h(text), parse_mode='HTML', reply_markup=post_preview_keyboard())
@@ -228,6 +231,8 @@ async def preview_send(cb: CallbackQuery, state: FSMContext):
 
     post_id = await create_post(user_id, text, photo)
     logger.info("Создан пост #%s (%s) от пользователя %s", post_id, "фото" if photo else "текст", user_id)
+    if data.get("src_msg_id"):
+        await react(cb.bot, cb.message.chat.id, data["src_msg_id"], "👍")
     await _notify_submitted(cb.message, post_id)
     await _route_safely(post_id, photo_checked=bool(photo))
     await log("new_post", f"{'photo' if photo else 'text'} post #{post_id} from user {user_id}")

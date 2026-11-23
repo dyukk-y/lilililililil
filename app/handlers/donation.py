@@ -11,6 +11,7 @@ from app.database import record_star_purchase
 from app.runtime_settings import get as get_setting
 from app.states import DonationState
 from app.utils import h
+from app.tg_ui import EFFECT_FIRE, send_with_effect
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -108,7 +109,9 @@ async def complete_donation(msg: Message, amount: int):
             except Exception:
                 logger.exception("Не удалось отправить уведомление о пожертвовании администрации")
 
-    await msg.answer(
+    await send_with_effect(
+        msg.bot, msg.chat.id,
         f"💛 Спасибо за пожертвование — {amount} Stars!\n"
-        "Ваш вклад получен администрацией. Спасибо ❤️"
+        "Ваш вклад получен администрацией. Спасибо ❤️",
+        effect_id=EFFECT_FIRE,
     )

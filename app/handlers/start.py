@@ -12,6 +12,7 @@ from app.handlers.author_lookup import present_author_lookup
 from app.handlers.post_deletion import present_delete_prompt
 from app.handlers.unlock import get_ban_status, unlock_keyboard, ban_status_text
 from app.utils import h, main_menu_text
+from app.tg_ui import tg_time
 from datetime import datetime
 
 router = Router()
@@ -58,13 +59,15 @@ async def start(msg: Message, command: CommandObject, state: FSMContext):
         text = ban_status_text(ban_status)
         if ban_info:
             reason, ban_time, admin_username = ban_info
+            # ban_time хранится во времени сервера — показываем его как есть,
+            # но в часовом поясе читателя.
             try:
-                ban_time = datetime.fromisoformat(ban_time).strftime("%d.%m.%Y %H:%M")
+                ban_time_html = tg_time(datetime.fromisoformat(ban_time).astimezone())
             except (TypeError, ValueError):
-                pass
+                ban_time_html = h(ban_time)
             text += (
                 f"\n\n📝 Причина: {h(reason)}\n"
-                f"🕐 Время блокировки: {h(ban_time)}\n"
+                f"🕐 Время блокировки: {ban_time_html}\n"
                 f"👮 Вас заблокировал администратор: @{h(admin_username or 'неизвестно')}"
             )
         return await msg.answer(text, reply_markup=unlock_keyboard(ban_status))

@@ -20,6 +20,7 @@ from aiogram.types import CallbackQuery, Message, LabeledPrice, InlineKeyboardMa
 from app.runtime_settings import get as get_setting
 from app.loader import bot
 from app.database import is_banned, unban_user, log, record_star_purchase
+from app.tg_ui import PRIMARY, btn
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +67,11 @@ def unlock_keyboard(status: dict) -> InlineKeyboardMarkup | None:
     price = get_setting("UNLOCK_PRICE_STARS")
     rows = []
     if status.get("bot"):
-        rows.append([InlineKeyboardButton(text=f"🔓 Разблокировать бота за {price} ⭐", callback_data="unlock_bot")])
+        rows.append([btn(f"🔓 Разблокировать бота за {price} ⭐", "unlock_bot", style=PRIMARY)])
     if status.get("channel"):
-        rows.append([InlineKeyboardButton(text=f"🔓 Разблокировать канал за {price} ⭐", callback_data="unlock_channel")])
+        rows.append([btn(f"🔓 Разблокировать канал за {price} ⭐", "unlock_channel", style=PRIMARY)])
     if status.get("comments"):
-        rows.append([InlineKeyboardButton(text=f"🔓 Разблокировать комментарии за {price} ⭐", callback_data="unlock_comments")])
+        rows.append([btn(f"🔓 Разблокировать комментарии за {price} ⭐", "unlock_comments", style=PRIMARY)])
     return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 

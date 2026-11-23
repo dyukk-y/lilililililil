@@ -75,6 +75,7 @@ SETTINGS_SCHEMA: Dict[str, Tuple[type, str]] = {
     "UNLOCK_PRICE_STARS": (int, "Цена разблокировки (бот/канал/комментарии), ⭐"),
     "PIN_PRICE_STARS_PER_HOUR": (int, "Цена закрепа своего поста за 1 час, ⭐"),
     "NOTIFY_AUTHOR_ON_PUBLISH": (int, "Сообщать автору о публикации (0/1)"),
+    "RICH_MESSAGES": (int, "Таблицы в админ-панели (0/1)"),
     "BACKUP_INTERVAL_MINUTES": (int, "Интервал резервного копирования, мин"),
     "BACKUP_KEEP_LAST": (int, "Сколько резервных копий хранить"),
     "INTRO_COMMENT_TEXT": (str, "Текст первого комментария под постом"),
@@ -104,7 +105,7 @@ SETTINGS_CATEGORIES: List[Tuple[str, List[str]]] = [
     ]),
     ("⭐ Цены", ["AUTHOR_LOOKUP_PRICE_STARS", "PRIORITY_BOOST_PRICE_STARS", "UNLOCK_PRICE_STARS",
                "PIN_PRICE_STARS_PER_HOUR"]),
-    ("🗄 Резервные копии", ["BACKUP_INTERVAL_MINUTES", "BACKUP_KEEP_LAST"]),
+    ("🗄 Копии и вид", ["BACKUP_INTERVAL_MINUTES", "BACKUP_KEEP_LAST", "RICH_MESSAGES"]),
 ]
 
 
@@ -252,6 +253,7 @@ async def set_value(key: str, raw_value: str) -> Tuple[bool, str]:
         "UNLOCK_PRICE_STARS": (1, 1_000_000),
         "PIN_PRICE_STARS_PER_HOUR": (1, 100_000),
         "NOTIFY_AUTHOR_ON_PUBLISH": (0, 1),
+        "RICH_MESSAGES": (0, 1),
         "BACKUP_INTERVAL_MINUTES": (1, 10080),
         "BACKUP_KEEP_LAST": (1, 1000),
     }

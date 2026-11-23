@@ -60,8 +60,32 @@ async def test_learned_model_sends_suspicious_post_to_manual(app_ready):
 
 async def test_ai_stats_button_works(app_ready, fake):
     await app_ready.feed_update(bot, H.callback_update(ADMIN_ID, "admin_ai_stats"))
-    text = fake.of("EditMessageText")[-1].text
-    assert "Самообучаемая модель" in text
+    edit = fake.of("EditMessageText")[-1]
+    assert edit.rich_message is not None and "Самообучаемая модель" in edit.rich_message.html
+
+
+async def test_rich_message_falls_back_to_plain_html(app_ready, fake):
+    """Если Telegram не принял rich-сообщение — показывается обычный текст."""
+    from aiogram.exceptions import TelegramBadRequest
+    from aiogram.methods import EditMessageText
+    real = fake.make_request
+
+    async def picky(bot_, method, timeout=None):
+        if type(method).__name__ == "EditMessageText" and method.rich_message is not None:
+            fake.calls.append(method)
+            raise TelegramBadRequest(method=method, message="Bad Request: RICH_MESSAGE_INVALID")
+        return await real(bot_, method, timeout)
+
+    fake.make_request = picky
+    await app_ready.feed_update(bot, H.callback_update(ADMIN_ID, "admin_stats"))
+    edits = fake.of("EditMessageText")
+    assert edits[-1].rich_message is None and "Статистика бота" in edits[-1].text
+    # Возврат в панель после rich-экрана: если редактирование не удалось —
+    # панель приходит новым сообщением, без «ошибки».
+    fake.fail_methods["EditMessageText"] = TelegramBadRequest(
+        method=EditMessageText(text="x"), message="Bad Request: message can't be edited")
+    await app_ready.feed_update(bot, H.callback_update(ADMIN_ID, "admin_panel"))
+    assert "Админ-панель" in fake.of("SendMessage")[-1].text
 
 
 async def test_admin_panel_is_compact(app_ready, fake):

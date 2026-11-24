@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from typing import List
 
+from app.emoji_rules import starts_with_person_emoji
+
 
 
 @dataclass(frozen=True)
@@ -58,7 +60,9 @@ def score_post(text: str) -> AutoScore:
     reasons: List[str] = []
 
     # Обязательный формат начала поста даёт сильный базовый сигнал.
-    if re.match(r"^(?:🧑|👩)(?:\s+или\s+(?:🧑|👩))?(?=\s|$)", text):
+    # Эмодзи человека в начале — с любым оттенком кожи и вариантами ♂/♀
+    # (раньше «🧑🏻 …» или «👨 …» теряли эти 20 баллов).
+    if starts_with_person_emoji(text):
         score += 20
         reasons.append("правильный формат 🧑/👩")
 

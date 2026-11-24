@@ -27,6 +27,7 @@ from app.database import (
 from app.runtime_settings import get as get_setting
 from app.text_quality import detect_gibberish
 from app.validators import validate_post_text
+from app.emoji_rules import has_person_emoji
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -71,6 +72,8 @@ async def _precheck(msg: Message, text: str, has_photo: bool) -> str | None:
         await register_violation(msg.bot, user_id, "blacklist")
         return "Текст содержит запрещённые слова."
     ok, error = validate_post_text(text, has_photo=has_photo)
+    if not ok and not has_person_emoji(text):
+        return "Добавьте в пост эмодзи, о ком он: 🧑/👨 — парень, 👩/👧 — девушка."
     if not ok:
         import re
         return re.sub(r"<[^>]+>", "", error).replace("❌", "").strip().split("\n")[0]

@@ -538,3 +538,10 @@ def reject_reasons_keyboard(post_id: int, prefix: str, cancel_callback: str) -> 
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
     rows.append([btn("↩️ Отмена", cancel_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def add_emoji_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn("🧑 Это парень", "addemoji_m", style=PRIMARY), btn("👩 Это девушка", "addemoji_f", style=PRIMARY)],
+        [InlineKeyboardButton(text="↩️ К выбору типа поста", callback_data="offer")],
+    ])

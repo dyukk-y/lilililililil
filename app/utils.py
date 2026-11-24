@@ -65,6 +65,6 @@ def main_menu_text(first_name: str | None = None) -> str:
     return (
         f"👋 Привет, <b>{name}</b>!\n\n"
         "Здесь можно предложить пост для публикации в канале.\n\n"
-        "<blockquote>⚠️ В каждом посте должен быть эмодзи 🧑 или 👩</blockquote>\n\n"
+        "<blockquote>⚠️ В посте нужен эмодзи, о ком он: 🧑 парень или 👩 девушка</blockquote>\n\n"
         "Выберите действие 👇"
     )

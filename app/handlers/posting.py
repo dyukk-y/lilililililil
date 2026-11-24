@@ -15,6 +15,7 @@ from app.services import *
 from app.utils import h
 from app.tg_ui import react
 from app.autoban import register_violation
+from app.emoji_rules import add_person_emoji, missing_emoji_message
 
 router = Router()
 
@@ -95,7 +96,7 @@ async def get_photo(msg: Message, state: FSMContext):
     await msg.answer(
         "✅ Фото принято.\n\n"
         "📝 <b>Теперь пришли текст к фото:</b>\n\n"
-        "⚠️ Не забудьте добавить 🧑 или 👩 в текст!",
+        "⚠️ Добавьте эмодзи, о ком пост: 🧑 или 👩 (подойдут и 👨, 👧, 🙋‍♀️…)",
         parse_mode='HTML',
         reply_markup=back_to_post_type()
     )
@@ -134,13 +135,17 @@ async def _finalize_photo_post(msg: Message, state: FSMContext, text: str) -> No
 
 
 # ================== ПРЕДПРОСМОТР ПЕРЕД ОТПРАВКОЙ ==================
-async def _show_preview(msg: Message, state: FSMContext, text: str, photo: str | None) -> None:
+async def _show_preview(msg: Message, state: FSMContext, text: str, photo: str | None,
+                        src_msg_id: int | None = None) -> None:
     """Показывает пост ровно так, как он будет выглядеть в канале, с кнопками
-    «Отправить / Изменить / Отмена». Опечатку можно исправить до модерации."""
-    await state.update_data(draft_text=text, photo=photo, src_msg_id=msg.message_id)
+    «Отправить / Изменить / Отмена». Опечатку можно исправить до модерации.
+    src_msg_id — сообщение пользователя с текстом поста (если вызывается из
+    кнопки, msg — это сообщение бота)."""
+    src_msg_id = src_msg_id or msg.message_id
+    await state.update_data(draft_text=text, photo=photo, src_msg_id=src_msg_id)
     await state.set_state(PostState.confirm)
     # 👀 на сообщении пользователя — видно, что бот его получил.
-    await react(msg.bot, msg.chat.id, msg.message_id, "👀")
+    await react(msg.bot, msg.chat.id, src_msg_id, "👀")
     await msg.answer("👀 <b>Так пост будет выглядеть в канале:</b>", parse_mode='HTML')
     if photo:
         await msg.answer_photo(photo=photo, caption=h(text), parse_mode='HTML', reply_markup=post_preview_keyboard())
@@ -248,7 +253,7 @@ async def no_photo(cb: CallbackQuery, state: FSMContext):
     await state.set_state(PostState.wait_text_only)
     await cb.message.edit_text(
         "Пришлите текст для публикации.\n\n"
-        "⚠️ Не забудь добавить 🧑 или 👩 в текст!",
+        "⚠️ Добавьте эмодзи, о ком пост: 🧑 или 👩 (подойдут и 👨, 👧, 🙋‍♀️…)",
         reply_markup=back_to_previous()
     )
 
@@ -297,7 +302,8 @@ async def _notify_submitted(msg: Message, post_id: int) -> None:
 
 
 # ================== ОБЩИЕ АВТОМАТИЧЕСКИЕ ПРОВЕРКИ ПЕРЕД СОЗДАНИЕМ ПОСТА ==================
-async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_photo: bool = False) -> bool:
+async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_photo: bool = False,
+                              user_id: int | None = None) -> bool:
     """Стоп-слова (маты/оскорбления/спам) + валидация текста (в т.ч. минимум
     3 слова, обязательный эмодзи 🧑/👩) + проверка на осмысленность +
     проверка на повторяющийся (нечётко похожий) текст.
@@ -310,10 +316,11 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
     Возвращает False, если пост нужно отклонить ещё до создания записи в
     БД (пользователю уже отправлен ответ)."""
     text = text or ""
+    uid = user_id if user_id is not None else msg.from_user.id
 
     # Лимит проверяется и здесь, а не только при нажатии «Предложить пост»:
     # иначе его можно было обойти, открыв несколько диалогов заранее.
-    if await _limit_reached(msg.from_user.id):
+    if await _limit_reached(uid):
         await state.clear()
         await msg.answer(_limit_text(), reply_markup=menu_btn())
         return False
@@ -327,13 +334,20 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
             parse_mode='HTML',
             reply_markup=menu_btn()
         )
-        await log("auto_reject_blacklist", f"user {msg.from_user.id}: keyword '{keyword}'")
-        await register_violation(msg.bot, msg.from_user.id, "blacklist")
+        await log("auto_reject_blacklist", f"user {uid}: keyword '{keyword}'")
+        await register_violation(msg.bot, uid, "blacklist")
         await state.clear()
         return False
 
     is_valid, error_message = validate_post_text(text, has_photo=has_photo)
     if not is_valid:
+        if error_message == missing_emoji_message():
+            # Единственная проблема — нет эмодзи: не заставляем набирать
+            # текст заново, а предлагаем добавить его одной кнопкой.
+            await state.update_data(emoji_draft=text, emoji_has_photo=has_photo,
+                                    emoji_src_msg_id=msg.message_id)
+            await msg.answer(error_message, parse_mode='HTML', reply_markup=add_emoji_keyboard())
+            return False
         await msg.answer(
             error_message,
             parse_mode='HTML',
@@ -344,7 +358,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
     # Более строгая проверка на осмысленность текста — только для обычных
     # пользователей. Админам можно писать что угодно (например, тестовые
     # посты).
-    if not _is_admin(msg.from_user.id):
+    if not _is_admin(uid):
         is_gibberish, gibberish_reason = detect_gibberish(text)
         if is_gibberish:
             await msg.answer(
@@ -354,8 +368,8 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
                 parse_mode='HTML',
                 reply_markup=back_to_post_type()
             )
-            await log("auto_reject_gibberish", f"user {msg.from_user.id}: {gibberish_reason}")
-            await register_violation(msg.bot, msg.from_user.id, "gibberish")
+            await log("auto_reject_gibberish", f"user {uid}: {gibberish_reason}")
+            await register_violation(msg.bot, uid, "gibberish")
             return False
 
     duplicate_count = await count_similar_posts(text)
@@ -367,8 +381,8 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
             parse_mode='HTML',
             reply_markup=menu_btn()
         )
-        await log("auto_reject_duplicate", f"user {msg.from_user.id}: {duplicate_count} похожих постов")
-        await register_violation(msg.bot, msg.from_user.id, "duplicate")
+        await log("auto_reject_duplicate", f"user {uid}: {duplicate_count} похожих постов")
+        await register_violation(msg.bot, uid, "duplicate")
         await state.clear()
         return False
 
@@ -398,3 +412,27 @@ async def back_to_previous_step(cb: CallbackQuery, state: FSMContext):
         reply_markup=kb
     )
     await cb.answer()
+
+
+# ================== ДОБАВИТЬ ЭМОДЗИ ОДНОЙ КНОПКОЙ ==================
+@router.callback_query(F.data.in_({"addemoji_m", "addemoji_f"}))
+async def add_emoji(cb: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    draft = data.get("emoji_draft")
+    if not draft or await state.get_state() not in (
+        PostState.wait_text_only.state, PostState.wait_text_after_photo.state, PostState.confirm.state,
+    ):
+        return await cb.answer("⚠️ Черновик устарел — пришлите текст поста ещё раз.", show_alert=True)
+    gender = "m" if cb.data == "addemoji_m" else "f"
+    text = add_person_emoji(draft, gender)
+    has_photo = bool(data.get("emoji_has_photo")) and bool(data.get("photo"))
+    await state.update_data(emoji_draft=None)
+    await cb.answer("Эмодзи добавлен")
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    if not await _passes_auto_checks(cb.message, state, text, has_photo=has_photo, user_id=cb.from_user.id):
+        return
+    await _show_preview(cb.message, state, text, data.get("photo") if has_photo else None,
+                        src_msg_id=data.get("emoji_src_msg_id"))

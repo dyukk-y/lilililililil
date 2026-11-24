@@ -55,6 +55,9 @@ def test_format_bonus_only_for_plain_emoji():
 def test_add_person_emoji():
     assert add_person_emoji("  кто этот парень ", "m") == "🧑 кто этот парень"
     assert add_person_emoji("кто эта девушка", "f") == "👩 кто эта девушка"
+    # Эмодзи не в начале переносится в начало (без дубля), переносы строк сохраняются
+    assert add_person_emoji("кто эта девушка 👩", "f") == "👩 кто эта девушка"
+    assert add_person_emoji("кто это 👩 у фонтана\nв парке", "f") == "👩 кто это у фонтана\nв парке"
 
 
 pytestmark_async = pytest.mark.asyncio(loop_scope="session")
@@ -64,6 +67,10 @@ pytestmark_async = pytest.mark.asyncio(loop_scope="session")
 async def test_validator_accepts_new_emoji(app_ready):
     from app.validators import validate_post_text
     assert validate_post_text("🧑 расскажите про этого парня")[0]
+    # Эмодзи обязан стоять в самом начале
+    assert not validate_post_text("расскажите про этого парня 🧑")[0]
+    assert not validate_post_text("Привет 👩 кто знает эту девушку")[0]
+    assert validate_post_text("  👩 кто знает эту девушку")[0]  # пробелы в начале не мешают
     for bad in ("👩🏽 кто знает эту девушку", "👨 расскажите про этого мужчину", "🙋‍♀️ кто знает эту девушку", "👩‍💻 кто знает эту девушку"):
         ok, msg = validate_post_text(bad)
         assert not ok and "🧑" in msg and "👩" in msg
@@ -104,3 +111,15 @@ async def test_stale_add_emoji_button(app_ready, fake):
     await app_ready.feed_update(bot, H.message_update(uid, "/start"))
     await app_ready.feed_update(bot, H.callback_update(uid, "addemoji_m"))
     assert "устарел" in fake.of("AnswerCallbackQuery")[-1].text
+
+
+
+@pytestmark_async
+async def test_emoji_not_at_start_is_moved_by_button(app_ready, fake):
+    uid = 9004
+    await app_ready.feed_update(bot, H.message_update(uid, "/start"))
+    await app_ready.feed_update(bot, H.callback_update(uid, "no_photo"))
+    await app_ready.feed_update(bot, H.message_update(uid, "кто знает эту девушку из парка 👩"))
+    assert "в самом начале" in fake.of("SendMessage")[-1].text
+    await app_ready.feed_update(bot, H.callback_update(uid, "addemoji_f"))
+    assert fake.of("SendMessage")[-1].text == "👩 кто знает эту девушку из парка"

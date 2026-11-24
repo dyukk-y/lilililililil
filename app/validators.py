@@ -2,7 +2,7 @@
 from aiogram.types import Message, CallbackQuery
 
 from app.runtime_settings import get as get_setting
-from app.emoji_rules import has_person_emoji, missing_emoji_message
+from app.emoji_rules import missing_emoji_message, starts_with_person_emoji
 
 
 def is_valid_moderators_chat(message: Message) -> bool:
@@ -76,7 +76,7 @@ def validate_post_text(text: str, has_photo: bool = False) -> tuple[bool, str]:
     if word_count < 3:
         return False, "❌ Пост должен содержать минимум 3 слова."
 
-    if not has_person_emoji(text):
+    if not starts_with_person_emoji(text):
         return False, missing_emoji_message()
 
     return True, "✅ Текст прошел проверку."

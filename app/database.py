@@ -2177,3 +2177,42 @@ async def mark_suggested_failed(post_id: int, reason: str) -> None:
             "UPDATE posts SET status='rejected', reject_reason=?, moderation_time=? WHERE id=?",
             (reason[:500], _now_local(), post_id))
         await db.commit()
+
+
+async def link_suggested_post(channel_message_id: int, text: str, has_photo: bool) -> Tuple[Optional[int], bool]:
+    """Связывает вышедший в канале предложенный пост с записью в БД.
+
+    Bot API не сообщает номер сообщения в канале для одобренного
+    предложения, поэтому ищем по содержимому: опубликованное предложение
+    без channel_message_id, с тем же текстом (без учёта регистра и
+    пунктуации) и тем же наличием фото, одобренное не раньше 31 дня назад
+    (Telegram публикует предложение до 30 дней). Берём самое раннее —
+    посты выходят в порядке одобрения.
+
+    Возвращает (id поста или None, True — если связь создана только что)."""
+    norm = normalize_text(text or "")
+    if not norm:
+        return None, False
+    since = (datetime.now(TIMEZONE).replace(tzinfo=None) - timedelta(days=31)).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        # Этот номер уже привязан — ничего не делаем (повторная доставка).
+        cur = await db.execute("SELECT id FROM posts WHERE channel_message_id=?", (channel_message_id,))
+        row = await cur.fetchone()
+        if row:
+            return row[0], False
+        cur = await db.execute(
+            "SELECT id FROM posts WHERE source='suggested' AND status='published' "
+            "AND channel_message_id IS NULL AND text_norm=? AND (photo IS NOT NULL)=? "
+            "AND COALESCE(published_at, moderation_time, time) >= ? "
+            "ORDER BY COALESCE(published_at, moderation_time, time) ASC LIMIT 1",
+            (norm, 1 if has_photo else 0, since),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None, False
+        cur = await db.execute(
+            "UPDATE posts SET channel_message_id=? WHERE id=? AND channel_message_id IS NULL",
+            (channel_message_id, row[0]),
+        )
+        await db.commit()
+        return row[0], cur.rowcount == 1

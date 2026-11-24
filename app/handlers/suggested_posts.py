@@ -8,6 +8,11 @@
   (и списывает звёзды за платное предложение);
 - отказ → decline_suggested_post с комментарием автору.
 
+Номер вышедшего поста в канале Bot API не сообщает, поэтому бот узнаёт
+его по содержимому (on_channel_post / автопересылка в группу обсуждений)
+— после этого для предложенного поста работают «Узнать автора»,
+«Удалить» и первый комментарий с кнопками.
+
 Что нужно включить один раз:
 1. В канале — личные сообщения (Настройки канала → Личные сообщения).
 2. Бот — администратор канала с правами «Публикация сообщений» и
@@ -155,6 +160,25 @@ async def on_declined_elsewhere(msg: Message):
         from app.services import _disable_moderator_card
         await _disable_moderator_card(post_id, "rejected")
         await log("suggested_synced", f"post #{post_id}: declined in Telegram app")
+
+
+@router.channel_post()
+async def on_channel_post(msg: Message):
+    """Пост вышел в основном канале. Если это одобренное предложение —
+    запоминаем его номер в канале: после этого для него работают
+    «🔎 Узнать автора», «🗑 Удалить» и поиск по ссылке на пост."""
+    if msg.chat.id != get_setting("MAIN_CHANNEL_ID"):
+        return
+    from app.database import get_post_by_id, link_suggested_post
+    post_id, is_new = await link_suggested_post(msg.message_id, msg.text or msg.caption or "", bool(msg.photo))
+    if post_id and is_new:
+        await log("suggested_linked", f"post #{post_id} -> channel message {msg.message_id}")
+        # Теперь, когда известен номер поста, автор получает обычное
+        # уведомление со ссылкой и кнопкой «📌 Закрепить».
+        from app.services import notify_author_published
+        post = await get_post_by_id(post_id)
+        if post:
+            await notify_author_published(post_id, post[1], msg.message_id)
 
 
 @router.message(F.chat.is_direct_messages)

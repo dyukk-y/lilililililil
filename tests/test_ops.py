@@ -239,3 +239,84 @@ async def test_suggested_missing_rights_alerts_admins(app_ready, fake, our_dm):
     ok, _ = await publish_post(pid, moderator_id=ADMIN_ID)
     assert not ok and await get_post_status(pid) == "rejected"
     assert "Управление личными сообщениями" in [c for c in fake.of("SendMessage") if int(c.chat_id) == ADMINS_CHAT][-1].text
+
+
+# ---------------- Связь предложенного поста с каналом ----------------
+def _channel_post(msg_id: int, text: str) -> Update:
+    msg = Message(message_id=msg_id, date=datetime.now(),
+                  chat=Chat(id=-1001000000001, type="channel"), text=text)
+    return Update(update_id=msg_id + 700000, channel_post=msg)
+
+
+def _auto_forward(msg_id: int, channel_msg_id: int, text: str) -> Update:
+    from aiogram.types import MessageOriginChannel
+    origin = MessageOriginChannel(date=datetime.now(), chat=Chat(id=-1001000000001, type="channel"),
+                                  message_id=channel_msg_id)
+    msg = Message(message_id=msg_id, date=datetime.now(),
+                  chat=Chat(id=-1001000000004, type="supergroup"), text=text,
+                  is_automatic_forward=True, forward_origin=origin,
+                  from_user=H.user(777000))
+    return Update(update_id=msg_id + 800000, message=msg)
+
+
+async def _approved_suggested(dp, fake, uid, text, msg_id):
+    from app.database import get_post_by_dm_message
+    from app.services import publish_post
+    await feed(dp, _suggested(uid, text, msg_id))
+    pid = await get_post_by_dm_message(DM_CHAT, msg_id)
+    ok, _ = await publish_post(pid, moderator_id=ADMIN_ID)
+    assert ok
+    return pid
+
+
+async def test_channel_post_links_suggested_post(app_ready, fake, our_dm):
+    from app.database import get_post_by_channel_message_id
+    text = "🧑 кто знает парня с синим самокатом у школы"
+    pid = await _approved_suggested(app_ready, fake, 8020, text, 510)
+    await feed(app_ready, _channel_post(4001, text))
+    post = await get_post_by_channel_message_id(4001)
+    assert post and post[0] == pid
+    # Автор получил обычное уведомление со ссылкой и кнопкой закрепа.
+    note = [c for c in fake.of("SendMessage") if int(c.chat_id) == 8020][-1]
+    assert "опубликован" in note.text
+    assert any(b.callback_data == f"pin_offer_{pid}" for r in note.reply_markup.inline_keyboard for b in r)
+    # Повторная доставка того же поста — без второго уведомления.
+    before = len([c for c in fake.of("SendMessage") if int(c.chat_id) == 8020])
+    await feed(app_ready, _channel_post(4001, text))
+    assert len([c for c in fake.of("SendMessage") if int(c.chat_id) == 8020]) == before
+
+
+async def test_auto_forward_links_and_posts_intro_comment_with_buttons(app_ready, fake, our_dm):
+    from app.database import get_post_by_channel_message_id
+    text = "👩 кто знает девушку с жёлтым зонтом на остановке"
+    pid = await _approved_suggested(app_ready, fake, 8021, text, 511)
+    await feed(app_ready, _auto_forward(9100, 4002, text))
+    assert (await get_post_by_channel_message_id(4002))[0] == pid
+    comment = [c for c in fake.of("SendMessage") if int(c.chat_id) == -1001000000004][-1]
+    urls = [b.url for r in comment.reply_markup.inline_keyboard for b in r if b.url]
+    assert any(f"author_{pid}" in u for u in urls) and any(f"delete_{pid}" in u for u in urls)
+
+
+async def test_author_lookup_and_delete_work_for_linked_suggested_post(app_ready, fake, our_dm):
+    from app.database import get_post_status
+    from app.services import submit_deletion_request
+    text = "🧑 кто знает парня в красной кепке с собакой"
+    pid = await _approved_suggested(app_ready, fake, 8022, text, 512)
+    await feed(app_ready, _channel_post(4003, text))
+    # «Узнать автора» по ссылке на пост
+    buyer = 8023
+    await feed(app_ready, H.message_update(buyer, "/start"))
+    await feed(app_ready, H.callback_update(buyer, "author_lookup_start"))
+    await feed(app_ready, H.message_update(buyer, "https://t.me/c/1000000001/4003"))
+    assert "нашёл автора" in fake.of("SendMessage")[-1].text
+    # Автор удаляет свой пост — он реально удаляется из канала.
+    result, _ = await submit_deletion_request(pid, 8022, "передумал")
+    assert result == "auto_deleted" and await get_post_status(pid) == "deleted"
+    assert fake.of("DeleteMessage")[-1].message_id == 4003
+
+
+async def test_unrelated_channel_post_is_not_linked(app_ready, fake, our_dm):
+    from app.database import get_post_by_channel_message_id
+    await _approved_suggested(app_ready, fake, 8024, "🧑 кто знает парня с гитарой у фонтана", 513)
+    await feed(app_ready, _channel_post(4004, "Совсем другой текст от администрации"))
+    assert await get_post_by_channel_message_id(4004) is None

@@ -972,6 +972,15 @@ async def handle_channel_auto_forward(msg) -> None:
 
     post = await get_post_by_channel_message_id(channel_message_id)
     if not post:
+        # Возможно, это предложенный пост из личных сообщений канала: его
+        # публикует сам Telegram, и номер в канале мы узнаём только сейчас.
+        from app.database import link_suggested_post
+        post_id, is_new = await link_suggested_post(channel_message_id, msg.text or msg.caption or "", bool(msg.photo))
+        if post_id:
+            post = await get_post_by_channel_message_id(channel_message_id)
+            if is_new and post:
+                await notify_author_published(post_id, post[1], channel_message_id)
+    if not post:
         return
 
     await post_intro_comment(post[0], msg.message_id)

@@ -73,7 +73,7 @@ async def _precheck(msg: Message, text: str, has_photo: bool) -> str | None:
         return "Текст содержит запрещённые слова."
     ok, error = validate_post_text(text, has_photo=has_photo)
     if not ok and not has_person_emoji(text):
-        return "Добавьте в пост эмодзи, о ком он: 🧑/👨 — парень, 👩/👧 — девушка."
+        return "Добавьте в пост эмодзи 🧑 (парень) или 👩 (девушка) — другие не подходят."
     if not ok:
         import re
         return re.sub(r"<[^>]+>", "", error).replace("❌", "").strip().split("\n")[0]

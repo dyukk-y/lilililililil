@@ -96,7 +96,7 @@ async def get_photo(msg: Message, state: FSMContext):
     await msg.answer(
         "✅ Фото принято.\n\n"
         "📝 <b>Теперь пришли текст к фото:</b>\n\n"
-        "⚠️ Добавьте эмодзи, о ком пост: 🧑 или 👩 (подойдут и 👨, 👧, 🙋‍♀️…)",
+        "⚠️ Добавьте эмодзи, о ком пост: 🧑 (парень) или 👩 (девушка)",
         parse_mode='HTML',
         reply_markup=back_to_post_type()
     )
@@ -253,7 +253,7 @@ async def no_photo(cb: CallbackQuery, state: FSMContext):
     await state.set_state(PostState.wait_text_only)
     await cb.message.edit_text(
         "Пришлите текст для публикации.\n\n"
-        "⚠️ Добавьте эмодзи, о ком пост: 🧑 или 👩 (подойдут и 👨, 👧, 🙋‍♀️…)",
+        "⚠️ Добавьте эмодзи, о ком пост: 🧑 (парень) или 👩 (девушка)",
         reply_markup=back_to_previous()
     )
 

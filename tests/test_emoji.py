@@ -9,40 +9,41 @@ from tests import helpers as H
 @pytest.mark.parametrize("text, gender", [
     ("🧑 расскажите про парня", "m"),
     ("👩 расскажите про девушку", "f"),
-    ("👨 кто этот мужчина", "m"),          # раньше отклонялось
-    ("👦 что за мальчик", "m"),
-    ("🧔 кто этот бородач", "m"),
-    ("👧 что за девочка", "f"),
-    ("🧑🏻 светлый оттенок кожи", "m"),
+    ("🧑🏻 светлый оттенок кожи", "m"),      # тот же эмодзи другого цвета
     ("👩🏿 тёмный оттенок кожи", "f"),
-    ("🙋‍♂️ кто знает его", "m"),           # ♂ делает нейтральный эмодзи мужским
-    ("💁‍♀️ кто знает её", "f"),
-    ("👱‍♀️ блондинка с остановки", "f"),
-    ("👩‍💻 девушка с ноутбуком", "f"),
-    ("🧑‍🎓 выпускник школы", "m"),
-    ("расскажите про парня 👨", "m"),       # эмодзи в конце тоже засчитывается
+    ("👩️ с селектором варианта", "f"),
+    ("расскажите про парня 🧑", "m"),       # эмодзи в конце тоже засчитывается
+    ("👩‍💻 и 🧑 парень рядом", "m"),          # составной не считается, а 🧑 — да
 ])
-def test_person_emoji_detected(text, gender):
+def test_allowed_emoji_detected(text, gender):
     found = find_person_emoji(text)
     assert found is not None and found[2] == gender
 
 
 @pytest.mark.parametrize("text", [
     "расскажите про парня",            # нет эмодзи
-    "😀 расскажите про парня",          # не человек
-    "🙋 кто это вообще",                # человек без пола
-    "❤️🔥 кто это",
+    "👨 кто этот мужчина",              # только 🧑 или 👩
+    "👦 что за мальчик",
+    "👧 что за девочка",
+    "🧔 кто этот бородач",
+    "🙋‍♀️ кто знает её",
+    "👱‍♀️ блондинка с остановки",
+    "👩‍💻 девушка с ноутбуком",          # составной эмодзи — другое изображение
+    "🧑‍🎓 выпускник",
+    "👩‍❤️‍👨 пара в парке",
+    "😀 кто это",
     "",
     None,
 ])
-def test_no_person_emoji(text):
+def test_other_emoji_rejected(text):
     assert not has_person_emoji(text)
 
 
 def test_starts_with_person_emoji_handles_skin_tone_and_spaces():
     assert starts_with_person_emoji("🧑🏻 текст")
     assert starts_with_person_emoji("  👩 текст")
-    assert starts_with_person_emoji("🙋‍♀️текст")
+    assert not starts_with_person_emoji("👨 текст")
+    assert not starts_with_person_emoji("👩‍💻 текст")
     assert not starts_with_person_emoji("текст 👩")
 
 
@@ -62,10 +63,11 @@ pytestmark_async = pytest.mark.asyncio(loop_scope="session")
 @pytestmark_async
 async def test_validator_accepts_new_emoji(app_ready):
     from app.validators import validate_post_text
-    assert validate_post_text("👨 расскажите про этого мужчину")[0]
-    assert validate_post_text("🙋‍♀️ кто знает эту девушку")[0]
-    ok, msg = validate_post_text("расскажите про этого мужчину")
-    assert not ok and "👨" in msg
+    assert validate_post_text("🧑 расскажите про этого парня")[0]
+    assert validate_post_text("👩🏽 кто знает эту девушку")[0]
+    for bad in ("👨 расскажите про этого мужчину", "🙋‍♀️ кто знает эту девушку", "👩‍💻 кто знает эту девушку"):
+        ok, msg = validate_post_text(bad)
+        assert not ok and "🧑" in msg and "👩" in msg
 
 
 @pytestmark_async

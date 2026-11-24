@@ -24,6 +24,7 @@ _STATUS_LABELS = {
     "moderation": "обрабатывается",
     "approved": "в очереди на публикацию",
     "deleted": "удалён по заявке",
+    "cancelled": "отменён автором",
 }
 
 

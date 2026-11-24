@@ -24,13 +24,14 @@ def main_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [btn("✍️ Предложить пост", "offer", style=PRIMARY)],
         [
+            InlineKeyboardButton(text="📋 Мои посты", callback_data="my_posts"),
             InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
-            InlineKeyboardButton(text="❓ Помощь", callback_data="faq"),
         ],
         [
+            InlineKeyboardButton(text="❓ Помощь", callback_data="faq"),
             InlineKeyboardButton(text="📜 Правила", callback_data="rules"),
-            InlineKeyboardButton(text="📢 Реклама", url="https://t.me/smotrmaslyanino_price"),
         ],
+        [InlineKeyboardButton(text="📢 Реклама", url="https://t.me/smotrmaslyanino_price")],
         [
             InlineKeyboardButton(text="⭐ Stars", url="https://t.me/theyasha_bot?start=ref_6702947726"),
             InlineKeyboardButton(text="🔒 VPN", url="https://t.me/YashaVPN_robot?start=anhVIOjJ"),
@@ -39,7 +40,8 @@ def main_menu():
 
 def profile_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❤️ Пожертвовать", callback_data="donate")],
+        [InlineKeyboardButton(text="📋 Мои посты", callback_data="my_posts"),
+         InlineKeyboardButton(text="❤️ Пожертвовать", callback_data="donate")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="menu")]
     ])
 
@@ -268,6 +270,10 @@ def disabled_moderation_keyboard(post_id: int, action: str = "published") -> Inl
     if action == "published":
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="✅ Опубликовано", callback_data=f"who_pub_{post_id}")]
+        ])
+    if action == "cancelled":
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚫 Отменён автором", callback_data="disabled")]
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отказано", callback_data=f"who_rej_{post_id}")]

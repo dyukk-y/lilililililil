@@ -110,6 +110,9 @@ class ThrottlingMiddleware:
         if self._warned_until.get(user.id, 0) <= now:
             self._warned_until[user.id] = now + self.window
             logger.info("Антиспам: пользователь %s превысил лимит", user.id)
+            from app.autoban import register_violation
+            if await register_violation(event.bot, user.id, "flood"):
+                return None
             try:
                 text = "⏳ Слишком много действий. Подождите несколько секунд."
                 if isinstance(event, CallbackQuery):

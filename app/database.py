@@ -298,6 +298,16 @@ async def init_db() -> None:
             UNIQUE(broadcast_id, user_id)
         )""")
 
+        # Нарушения для автонаказаний (стоп-слова, бессмыслица, дубли, флуд).
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS user_violations(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            time TEXT NOT NULL
+        )""")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_violations_user_time ON user_violations(user_id, time)")
+
         # Платные закрепы постов пользователей (снимаются автоматически).
         await db.execute("""
         CREATE TABLE IF NOT EXISTS post_pins(
@@ -396,6 +406,11 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
         ("ai_reason", "TEXT"),
         ("ocr_text", "TEXT"),
         ("publish_next_retry_at", "TEXT"),
+        # Предложенные посты из личных сообщений канала (нативная функция Telegram)
+        ("source", "TEXT DEFAULT 'bot'"),
+        ("dm_chat_id", "INTEGER"),
+        ("dm_message_id", "INTEGER"),
+        ("suggested_price", "INTEGER"),
     ):
         if col not in posts_cols:
             await db.execute(f"ALTER TABLE posts ADD COLUMN {col} {coltype}")
@@ -410,6 +425,12 @@ async def _ensure_schema_migrations(db: aiosqlite.Connection) -> None:
         if col not in ads_cols:
             await db.execute(f"ALTER TABLE advertising_posts ADD COLUMN {col} {ddl}")
             logger.info("Миграция: добавлена колонка advertising_posts.%s", col)
+
+    bans_cols = await _columns("bans")
+    if "until" not in bans_cols:
+        # NULL — бессрочный (ручной) бан, иначе — время автоснятия (TIMEZONE).
+        await db.execute("ALTER TABLE bans ADD COLUMN until TEXT")
+        logger.info("Миграция: добавлена колонка bans.until")
 
     users_cols = await _columns("users")
     for col, coltype in (
@@ -771,17 +792,30 @@ async def get_dashboard_counts() -> Dict[str, int]:
 
 
 # ================== БАНЫ ==================
+def _now_local() -> str:
+    return datetime.now(TIMEZONE).replace(tzinfo=None).isoformat()
+
+
 async def is_banned(user_id: int) -> bool:
+    """Временный бан с истёкшим сроком снимается здесь же (лениво) —
+    фоновый цикл снимает остальные и уведомляет пользователя."""
     async with aiosqlite.connect(DB_NAME) as db:
-        cur = await db.execute("SELECT 1 FROM bans WHERE user_id=?", (user_id,))
-        return await cur.fetchone() is not None
+        cur = await db.execute("SELECT until FROM bans WHERE user_id=?", (user_id,))
+        row = await cur.fetchone()
+        if row is None:
+            return False
+        if row[0] and row[0] <= _now_local():
+            await db.execute("DELETE FROM bans WHERE user_id=? AND until IS NOT NULL", (user_id,))
+            await db.commit()
+            return False
+        return True
 
 
 async def get_ban_info(user_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         try:
             cur = await db.execute(
-                "SELECT reason, ban_time, admin_username FROM bans WHERE user_id=?",
+                "SELECT reason, ban_time, admin_username, until FROM bans WHERE user_id=?",
                 (user_id,),
             )
             return await cur.fetchone()
@@ -2021,3 +2055,125 @@ async def count_pending_ad_broadcasts(ad_id: int) -> int:
         cur = await db.execute(
             "SELECT COUNT(*) FROM advertising_broadcasts WHERE ad_id=? AND status='scheduled'", (ad_id,))
         return (await cur.fetchone())[0]
+
+
+# ================== АВТОНАКАЗАНИЯ ==================
+async def add_violation(user_id: int, kind: str) -> int:
+    """Записывает нарушение и возвращает их число за последние сутки."""
+    now = datetime.now(TIMEZONE).replace(tzinfo=None)
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("INSERT INTO user_violations(user_id, kind, time) VALUES(?,?,?)",
+                         (user_id, kind, now.isoformat()))
+        # Старше 30 дней нарушения не нужны.
+        await db.execute("DELETE FROM user_violations WHERE time < ?",
+                         ((now - timedelta(days=30)).isoformat(),))
+        await db.commit()
+        cur = await db.execute("SELECT COUNT(*) FROM user_violations WHERE user_id=? AND time >= ?",
+                               (user_id, (now - timedelta(days=1)).isoformat()))
+        return (await cur.fetchone())[0]
+
+
+async def count_recent_temp_bans(user_id: int, days: int = 30) -> int:
+    since = str(datetime.now() - timedelta(days=days))
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM logs WHERE action='autoban' AND data LIKE ? AND time >= ?",
+            (f"user {user_id}:%", since))
+        return (await cur.fetchone())[0]
+
+
+async def temp_ban_user(user_id: int, hours: int, reason: str) -> Optional[datetime]:
+    """Временный бан. Не трогает существующий бессрочный (ручной) бан.
+    Возвращает время снятия или None, если пользователь уже в ручном бане."""
+    until = datetime.now(TIMEZONE).replace(tzinfo=None) + timedelta(hours=hours)
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("SELECT until FROM bans WHERE user_id=?", (user_id,))
+        row = await cur.fetchone()
+        if row and row[0] is None:
+            return None
+        await db.execute(
+            "INSERT OR REPLACE INTO bans(user_id, reason, ban_time, admin_id, admin_username, until) "
+            "VALUES(?,?,?,?,?,?)",
+            (user_id, reason, str(datetime.now()), 0, "автомодерация", until.isoformat()),
+        )
+        await db.execute("DELETE FROM user_violations WHERE user_id=?", (user_id,))
+        await db.commit()
+    await log("autoban", f"user {user_id}: {hours}h — {reason}")
+    return until
+
+
+async def pop_expired_temp_bans() -> List[int]:
+    now = _now_local()
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("SELECT user_id FROM bans WHERE until IS NOT NULL AND until <= ?", (now,))
+        ids = [r[0] for r in await cur.fetchall()]
+        if ids:
+            await db.execute("DELETE FROM bans WHERE until IS NOT NULL AND until <= ?", (now,))
+            await db.commit()
+        return ids
+
+
+# ================== «МОИ ПОСТЫ» ==================
+async def get_user_posts(user_id: int, limit: int = 8, offset: int = 0) -> Tuple[list, int]:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT id, text, photo, time, status, reject_reason, channel_message_id, COALESCE(source,'bot') "
+            "FROM posts WHERE user_id=? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset))
+        rows = await cur.fetchall()
+        cur = await db.execute("SELECT COUNT(*) FROM posts WHERE user_id=?", (user_id,))
+        return rows, (await cur.fetchone())[0]
+
+
+async def cancel_post_by_author(post_id: int, user_id: int) -> bool:
+    """Автор отменяет свой пост, пока его не опубликовали."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "UPDATE posts SET status='cancelled', moderation_time=?, reject_reason='Отменён автором' "
+            "WHERE id=? AND user_id=? AND status IN ('moderation','approved') AND COALESCE(source,'bot')='bot'",
+            (_now_local(), post_id, user_id))
+        await db.commit()
+        return cur.rowcount == 1
+
+
+# ================== ПРЕДЛОЖЕННЫЕ ПОСТЫ (личные сообщения канала) ==================
+async def create_suggested_post(user_id: int, text: str, photo: Optional[str], dm_chat_id: int,
+                                dm_message_id: int, price: Optional[int]) -> Optional[int]:
+    """None — если это сообщение уже было принято (повторная доставка)."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("SELECT id FROM posts WHERE dm_chat_id=? AND dm_message_id=?",
+                               (dm_chat_id, dm_message_id))
+        if await cur.fetchone():
+            return None
+        cur = await db.execute(
+            "INSERT INTO posts(user_id, text, photo, time, status, text_norm, source, dm_chat_id, "
+            "dm_message_id, suggested_price) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (user_id, text, photo, _now_local(), "moderation", normalize_text(text),
+             "suggested", dm_chat_id, dm_message_id, price))
+        await db.commit()
+        return cur.lastrowid
+
+
+async def get_post_source(post_id: int):
+    """(source, dm_chat_id, dm_message_id, suggested_price)"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute(
+            "SELECT COALESCE(source,'bot'), dm_chat_id, dm_message_id, suggested_price FROM posts WHERE id=?",
+            (post_id,))
+        return await cur.fetchone() or ("bot", None, None, None)
+
+
+async def get_post_by_dm_message(dm_chat_id: int, dm_message_id: int) -> Optional[int]:
+    async with aiosqlite.connect(DB_NAME) as db:
+        cur = await db.execute("SELECT id FROM posts WHERE dm_chat_id=? AND dm_message_id=?",
+                               (dm_chat_id, dm_message_id))
+        row = await cur.fetchone()
+        return row[0] if row else None
+
+
+async def mark_suggested_failed(post_id: int, reason: str) -> None:
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "UPDATE posts SET status='rejected', reject_reason=?, moderation_time=? WHERE id=?",
+            (reason[:500], _now_local(), post_id))
+        await db.commit()

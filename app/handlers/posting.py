@@ -14,6 +14,7 @@ from app.validators import *
 from app.services import *
 from app.utils import h
 from app.tg_ui import react
+from app.autoban import register_violation
 
 router = Router()
 
@@ -327,6 +328,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
             reply_markup=menu_btn()
         )
         await log("auto_reject_blacklist", f"user {msg.from_user.id}: keyword '{keyword}'")
+        await register_violation(msg.bot, msg.from_user.id, "blacklist")
         await state.clear()
         return False
 
@@ -353,6 +355,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
                 reply_markup=back_to_post_type()
             )
             await log("auto_reject_gibberish", f"user {msg.from_user.id}: {gibberish_reason}")
+            await register_violation(msg.bot, msg.from_user.id, "gibberish")
             return False
 
     duplicate_count = await count_similar_posts(text)
@@ -365,6 +368,7 @@ async def _passes_auto_checks(msg: Message, state: FSMContext, text: str, has_ph
             reply_markup=menu_btn()
         )
         await log("auto_reject_duplicate", f"user {msg.from_user.id}: {duplicate_count} похожих постов")
+        await register_violation(msg.bot, msg.from_user.id, "duplicate")
         await state.clear()
         return False
 

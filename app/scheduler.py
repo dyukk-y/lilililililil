@@ -400,6 +400,9 @@ async def maintenance_loop() -> None:
                 await asyncio.to_thread(release_if_idle, NUDENET_IDLE_UNLOAD_SECONDS)
             from app.handlers.post_pin import unpin_expired
             await unpin_expired()
+            from app.autoban import release_expired_bans
+            from app.loader import bot
+            await release_expired_bans(bot)
             now = asyncio.get_running_loop().time()
             if now - last_daily >= 24 * 3600 or last_daily == 0.0:
                 last_daily = now

@@ -181,6 +181,10 @@ AUTOPILOT_DECIDE_HOURS = _optional_int("AUTOPILOT_DECIDE_HOURS", 2)
 AUTOPILOT_TRUSTED_PHOTOS = _flag("AUTOPILOT_TRUSTED_PHOTOS", "true")
 TRUSTED_MIN_PUBLISHED = _optional_int("TRUSTED_MIN_PUBLISHED", 5)
 
+# ================== АВТОНАКАЗАНИЯ (см. app/autoban.py) ==================
+AUTOBAN_ENABLED = _flag("AUTOBAN_ENABLED", "true")
+AUTOBAN_VIOLATIONS = _optional_int("AUTOBAN_VIOLATIONS", 3)
+
 # ================== СУПЕР-АДМИНИСТРАТОРЫ ==================
 # Расширенные права: редактирование динамических настроек бота (цены,
 # лимиты, ID чатов и т.д. — см. app/runtime_settings.py) и выгрузка

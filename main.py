@@ -39,6 +39,7 @@ from app.handlers import (
     advertising,
     donation,
     post_pin,
+    my_posts,
     common,
 )
 
@@ -66,6 +67,7 @@ ROUTERS = (
     advertising.router,
     donation.router,
     post_pin.router,
+    my_posts.router,
     common.router,  # всегда последним: «страховочные» обработчики
 )
 
@@ -134,19 +136,29 @@ async def main() -> None:
     # - deletion_expiry_loop: автоотклонение заявок на удаление без ответа;
     # - moderation_expiry_loop: автоотклонение постов на ручной модерации
     #   без решения модератора в течение MODERATION_TIMEOUT_HOURS.
+    from app import alerts
+    alerts.install()
+    # Каждая фоновая задача работает под супервизором: если упадёт —
+    # перезапустится сама, а админы получат одно сообщение.
+    loops = {
+        "публикация по расписанию": lambda: publisher_loop(publish_post),
+        "ребалансировка очереди": rebalance_loop,
+        "резервное копирование": backup_loop,
+        "заявки на удаление": deletion_expiry_loop,
+        "сроки модерации": moderation_expiry_loop,
+        "реклама": advertising_expiry_loop,
+        "обслуживание": maintenance_loop,
+        "обучение ИИ": learning_loop,
+        "мониторинг": alerts.health_loop,
+    }
     background = [
-        asyncio.create_task(publisher_loop(publish_post), name="publisher"),
-        asyncio.create_task(rebalance_loop(), name="rebalance"),
-        asyncio.create_task(backup_loop(), name="backup"),
-        asyncio.create_task(deletion_expiry_loop(), name="deletion_expiry"),
-        asyncio.create_task(moderation_expiry_loop(), name="moderation_expiry"),
-        asyncio.create_task(advertising_expiry_loop(), name="advertising"),
-        asyncio.create_task(maintenance_loop(), name="maintenance"),
-        asyncio.create_task(learning_loop(), name="ai_learning"),
+        asyncio.create_task(alerts.supervise(name, factory), name=name)
+        for name, factory in loops.items()
     ]
 
     await _set_commands()
     logger.info("Бот запущен и готов к работе")
+    await alerts.notify_admins("✅ Бот запущен и работает.", key="startup", cooldown=600)
     # Накопившиеся за время простоя обновления больше НЕ выбрасываются по
     # умолчанию: среди них могут быть successful_payment — раньше оплата,
     # пришедшая во время перезапуска, просто терялась (звёзды списаны, а

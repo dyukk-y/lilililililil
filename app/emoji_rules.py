@@ -4,9 +4,8 @@
 🧑 (парень) или 👩 (девушка). Никакие другие эмодзи людей (👨, 👧, 🙋‍♀️…)
 публикацию не разрешают.
 
-Допускается оттенок кожи (🧑🏻 … 👩🏿) — это тот же эмодзи другого цвета.
-Составные эмодзи (👩‍💻, 🧑‍🎓, 👩‍❤️‍👨) НЕ засчитываются: это уже другие
-изображения, а не 🧑/👩.
+Засчитываются только «чистые» жёлтые 🧑 и 👩: варианты с оттенком кожи
+(🧑🏻 … 👩🏿) и составные эмодзи (👩‍💻, 🧑‍🎓, 👩‍❤️‍👨) не подходят.
 """
 from typing import Optional
 
@@ -20,26 +19,23 @@ _GENDER = {MALE_EMOJI: "m", FEMALE_EMOJI: "f"}
 
 
 def find_person_emoji(text: str) -> Optional[tuple[int, str, str]]:
-    """Первый допустимый эмодзи: (позиция, эмодзи, 'm'|'f') или None."""
+    """Первый допустимый эмодзи: (позиция, эмодзи, 'm'|'f') или None.
+
+    Засчитываются только «чистые» жёлтые 🧑 и 👩. Вариант с оттенком кожи
+    (🧑🏻) и составные эмодзи (👩‍💻) — нет."""
     text = text or ""
-    i, n = 0, len(text)
-    while i < n:
-        ch = text[i]
-        if ch in _GENDER:
-            start, j = i, i + 1
-            while j < n and (text[j] in SKIN_TONES or text[j] == VS16):
-                j += 1
-            joined = (j < n and text[j] == ZWJ) or (start > 0 and text[start - 1] == ZWJ)
-            if not joined:
-                return start, text[start:j], _GENDER[ch]
-            # Часть составного эмодзи (👩‍💻) — пропускаем всю последовательность.
-            while j < n and text[j] == ZWJ:
-                j += 2
-                while j < n and (text[j] in SKIN_TONES or text[j] == VS16):
-                    j += 1
-            i = j
+    n = len(text)
+    for i, ch in enumerate(text):
+        if ch not in _GENDER:
             continue
-        i += 1
+        j = i + 1
+        if j < n and text[j] == VS16:
+            j += 1  # невидимый селектор варианта не меняет вид эмодзи
+        if j < n and text[j] in SKIN_TONES:
+            continue  # оттенок кожи — не подходит
+        if (j < n and text[j] == ZWJ) or (i > 0 and text[i - 1] == ZWJ):
+            continue  # часть составного эмодзи
+        return i, text[i:j], _GENDER[ch]
     return None
 
 
@@ -65,6 +61,6 @@ def missing_emoji_message() -> str:
         "❌ <b>Добавьте эмодзи, о ком пост:</b>\n"
         "• 🧑 — парень\n"
         "• 👩 — девушка\n\n"
-        "Другие эмодзи (👨, 👧, 🙋‍♀️ и т.п.) не подходят. Можно просто нажать "
+        "Другие эмодзи и варианты с оттенком кожи (👨, 👧, 🧑🏻 и т.п.) не подходят. Можно просто нажать "
         "кнопку ниже — бот сам добавит нужный эмодзи в начало поста."
     )

@@ -9,8 +9,6 @@ from tests import helpers as H
 @pytest.mark.parametrize("text, gender", [
     ("🧑 расскажите про парня", "m"),
     ("👩 расскажите про девушку", "f"),
-    ("🧑🏻 светлый оттенок кожи", "m"),      # тот же эмодзи другого цвета
-    ("👩🏿 тёмный оттенок кожи", "f"),
     ("👩️ с селектором варианта", "f"),
     ("расскажите про парня 🧑", "m"),       # эмодзи в конце тоже засчитывается
     ("👩‍💻 и 🧑 парень рядом", "m"),          # составной не считается, а 🧑 — да
@@ -23,6 +21,8 @@ def test_allowed_emoji_detected(text, gender):
 @pytest.mark.parametrize("text", [
     "расскажите про парня",            # нет эмодзи
     "👨 кто этот мужчина",              # только 🧑 или 👩
+    "🧑🏻 светлый оттенок кожи",          # оттенки кожи не подходят
+    "👩🏿 тёмный оттенок кожи",
     "👦 что за мальчик",
     "👧 что за девочка",
     "🧔 кто этот бородач",
@@ -40,16 +40,16 @@ def test_other_emoji_rejected(text):
 
 
 def test_starts_with_person_emoji_handles_skin_tone_and_spaces():
-    assert starts_with_person_emoji("🧑🏻 текст")
+    assert not starts_with_person_emoji("🧑🏻 текст")
     assert starts_with_person_emoji("  👩 текст")
     assert not starts_with_person_emoji("👨 текст")
     assert not starts_with_person_emoji("👩‍💻 текст")
     assert not starts_with_person_emoji("текст 👩")
 
 
-def test_skin_tone_no_longer_loses_format_bonus():
+def test_format_bonus_only_for_plain_emoji():
     from app.auto_score import score_post
-    assert score_post("🧑🏻 расскажите про этого парня").score == score_post("🧑 расскажите про этого парня").score
+    assert score_post("🧑 расскажите про этого парня").score > score_post("🧑🏻 расскажите про этого парня").score
 
 
 def test_add_person_emoji():
@@ -64,8 +64,7 @@ pytestmark_async = pytest.mark.asyncio(loop_scope="session")
 async def test_validator_accepts_new_emoji(app_ready):
     from app.validators import validate_post_text
     assert validate_post_text("🧑 расскажите про этого парня")[0]
-    assert validate_post_text("👩🏽 кто знает эту девушку")[0]
-    for bad in ("👨 расскажите про этого мужчину", "🙋‍♀️ кто знает эту девушку", "👩‍💻 кто знает эту девушку"):
+    for bad in ("👩🏽 кто знает эту девушку", "👨 расскажите про этого мужчину", "🙋‍♀️ кто знает эту девушку", "👩‍💻 кто знает эту девушку"):
         ok, msg = validate_post_text(bad)
         assert not ok and "🧑" in msg and "👩" in msg
 

@@ -177,6 +177,10 @@ class ChatValidationMiddleware:
         comments_chat_id = get_setting("COMMENTS_CHAT_ID")
 
         if isinstance(event, Message):
+            # Личные сообщения канала (предложенные посты) обрабатывает
+            # handlers/suggested_posts.py — тему/чат здесь проверять не нужно.
+            if getattr(event.chat, "is_direct_messages", False):
+                return await handler(event, data)
             if event.chat.type in ("group", "supergroup"):
                 # Чат комментариев используется только для учёта активности
                 # пользователей (счётчик комментариев в профиле) — модерация

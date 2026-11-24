@@ -34,7 +34,7 @@ from app.database import (
     get_post_by_channel_message_id, mark_intro_comment_posted, finish_intro_comment, reset_intro_comment_claim,
     record_ai_feedback, record_ai_correction, adjust_user_trust, get_ai_stats,
     get_user_trust_score, get_recent_photo_hashes, set_ai_analysis,
-    get_active_advertising_subscriptions, expire_advertising_subscriptions,
+    get_active_advertising_subscriptions, expire_advertising_subscriptions, get_post_source,
 )
 from app.keyboards import (
     moderation_keyboard, deletion_reviewer_keyboard, deletion_resolved_keyboard,
@@ -269,8 +269,11 @@ async def publish_post(post_id: int, moderator_id: int = 0) -> Tuple[bool, str]:
         return False, "already_processed"
     if not await claim_post_for_publishing(post_id, moderator_id):
         return False, "already_processed"
+    _, user_id, text, photo, _, _ = post
+    source, dm_chat_id, dm_message_id, _price = await get_post_source(post_id)
+    if source == "suggested":
+        return await _publish_suggested(post_id, dm_chat_id, dm_message_id, moderator_id)
     try:
-        _, user_id, text, photo, _, _ = post
         chat_id = get_setting("MAIN_CHANNEL_ID")
         if photo:
             sent = await bot.send_photo(chat_id=chat_id, photo=photo, caption=escape(text or ""), parse_mode="HTML")
@@ -309,6 +312,45 @@ async def publish_post(post_id: int, moderator_id: int = 0) -> Tuple[bool, str]:
     return True, "published"
 
 
+async def _publish_suggested(post_id: int, dm_chat_id: int, dm_message_id: int,
+                             moderator_id: int) -> Tuple[bool, str]:
+    """Одобряет предложенный пост — публикует его сам Telegram."""
+    from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+    try:
+        await bot.approve_suggested_post(chat_id=dm_chat_id, message_id=dm_message_id)
+    except (TelegramBadRequest, TelegramForbiddenError) as e:
+        # Постоянная ошибка (предложение уже обработано, нет прав) — повтор
+        # не поможет: снимаем пост с очереди и сообщаем админам.
+        from app.database import mark_suggested_failed
+        await mark_suggested_failed(post_id, f"Telegram отказал в публикации: {str(e)[:200]}")
+        await _disable_moderator_card(post_id, "rejected")
+        from app.alerts import notify_admins
+        await notify_admins(
+            f"⚠️ Не удалось одобрить предложенный пост #{post_id}: <code>{h(str(e)[:300])}</code>\n"
+            "Проверьте, что бот — админ канала с правами «Публикация сообщений» и "
+            "«Управление личными сообщениями».",
+            key="suggested_rights", cooldown=3600,
+        )
+        return False, "telegram_publish_failed"
+    except Exception as e:
+        await fail_publishing(post_id, str(e), retry=True)
+        logger.exception("Ошибка одобрения предложенного поста #%s", post_id)
+        return False, "telegram_publish_failed"
+
+    await finish_publishing(post_id, None)
+    for step, coro in (
+        ("ai_feedback", lambda: record_ai_feedback(post_id, "published", 2.0 if moderator_id == 0 else 4.0)),
+        ("notify_admins", lambda: notify_admins_outcome(post_id, "published")),
+        ("moderator_card", lambda: _disable_moderator_card(post_id, "published")),
+        ("log", lambda: log("publish", f"suggested post #{post_id} approved by {moderator_id or 'bot'}")),
+    ):
+        try:
+            await coro()
+        except Exception:
+            logger.exception("Предложенный пост #%s одобрен, но шаг %s завершился ошибкой", post_id, step)
+    return True, "published"
+
+
 async def reject_post(post_id: int, moderator_id: Optional[int] = None, reason: str = "") -> bool:
     """Атомарно отклоняет пост и выполняет общие побочные действия.
 
@@ -337,19 +379,28 @@ async def reject_post(post_id: int, moderator_id: Optional[int] = None, reason: 
     except Exception:
         logger.exception("Не удалось записать AI feedback для отклонённого поста #%s", post_id)
 
-    try:
-        await bot.send_message(
-            chat_id=user_id,
-            text=(
-                f"❌ <b>Пост #{post_id} отклонён.</b>\n\n"
-                f"📝 Причина: {escape(reason or 'Не указана')}"
-            ),
-            parse_mode="HTML",
-        )
-    except Exception:
-        # Пользователь мог заблокировать бота — это не должно отменять уже
-        # успешно зафиксированное решение в БД.
-        logger.info("Не удалось уведомить автора поста #%s об отклонении", post_id)
+    source, dm_chat_id, dm_message_id, _price = await get_post_source(post_id)
+    if source == "suggested":
+        # Автор узнаёт об отказе прямо в личных сообщениях канала.
+        try:
+            await bot.decline_suggested_post(chat_id=dm_chat_id, message_id=dm_message_id,
+                                             comment=(reason or "Не подходит для канала")[:128])
+        except Exception as e:
+            logger.info("Не удалось отклонить предложенный пост #%s в Telegram: %s", post_id, e)
+    else:
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=(
+                    f"❌ <b>Пост #{post_id} отклонён.</b>\n\n"
+                    f"📝 Причина: {escape(reason or 'Не указана')}"
+                ),
+                parse_mode="HTML",
+            )
+        except Exception:
+            # Пользователь мог заблокировать бота — это не должно отменять уже
+            # успешно зафиксированное решение в БД.
+            logger.info("Не удалось уведомить автора поста #%s об отклонении", post_id)
 
     try:
         await notify_admins_outcome(post_id, "rejected", reason or "Не указана")
@@ -452,6 +503,10 @@ async def send_post_for_review(post_id: int, scheduled_time: Optional[datetime],
     else:
         ai_block = "🤖 <b>Проверка ИИ</b> — анализ ещё не сохранён\n\n"
 
+    source, _dm_chat, _dm_msg, price = await get_post_source(post_id)
+    if source == "suggested":
+        header += ("📨 <b>Предложен в личных сообщениях канала</b>"
+                   + (f" · 💰 <b>{price} ⭐</b>" if price else "") + "\n")
     mod_text = _build_review_text(
         header, ai_block, text, ocr_text, ai_reason,
         limit=CAPTION_LIMIT if photo else TEXT_LIMIT,

@@ -40,6 +40,7 @@ from app.handlers import (
     donation,
     post_pin,
     my_posts,
+    suggested_posts,
     common,
 )
 
@@ -68,6 +69,7 @@ ROUTERS = (
     donation.router,
     post_pin.router,
     my_posts.router,
+    suggested_posts.router,
     common.router,  # всегда последним: «страховочные» обработчики
 )
 
